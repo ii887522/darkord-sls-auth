@@ -1,0 +1,37 @@
+service: darkord-sls-auth
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  deploymentMethod: direct
+  runtime: python3.11
+  profile: ${param:profile}
+  region: ${param:region}
+  memorySize: ${param:memorySize}
+  architecture: arm64
+  logRetentionInDays: 7
+  # For now it is sufficient to not use AWS X-Ray tracing to develop this microservice. Comment out to save cost
+  # tracing:
+  #   lambda: true
+
+params:
+  stage:
+    profile: darkord-stage
+    region: us-east-1
+    memorySize: 256
+  prod:
+    profile: darkord
+    region: ap-southeast-1
+    memorySize: 512
+
+package:
+  individually: true
+  patterns:
+    - '!**'
+
+functions:
+  hello:
+    handler: handler.hello
+
+plugins:
+  - serverless-better-credentials
