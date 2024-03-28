@@ -1,0 +1,52 @@
+service: auth-layer
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  deploymentMethod: direct
+  profile: ${param:profile}
+  region: ${param:region}
+  disableRollback: ${param:disableRollback}
+  deploymentBucket:
+    name: darkord-sls-${sls:stage}-deployment-bucket
+    serverSideEncryption: AES256
+    blockPublicAccess: true
+
+params:
+  stage:
+    profile: darkord-stage
+    region: us-east-1
+    disableRollback: true
+  prod:
+    profile: darkord
+    region: ap-southeast-1
+    disableRollback: false
+
+custom:
+  prune:
+    automatic: true
+    includeLayers: true
+    number: 5
+
+package:
+  individually: true
+
+layers:
+  auth-layer:
+    path: auth-layer
+    package:
+      patterns:
+        - "auth-layer/**"
+    compatibleRuntimes:
+      - python3.11
+    compatibleArchitectures:
+      - x86_64
+      - arm64
+    allowedAccounts:
+      - ${aws:accountId}
+    retain: true
+
+plugins:
+  - serverless-better-credentials # Must be the first one in this list for this to work
+  - serverless-prune-plugin
+  - serverless-deployment-bucket

@@ -1,5 +1,9 @@
 services:
+  auth-layer:
+    path: src/layers
   auth-db:
     path: src/db
   auth-api:
     path: src/api
+    dependsOn:
+      - auth-layer

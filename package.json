@@ -22,6 +22,7 @@
     "serverless-better-credentials": "^2.0.0",
     "serverless-deployment-bucket": "^1.6.0",
     "serverless-iam-roles-per-function": "^3.2.0",
+    "serverless-latest-layer-version": "^2.1.2",
     "serverless-prune-plugin": "^2.0.2"
   }
 }

@@ -38,8 +38,16 @@ resources:
             AttributeType: S
           - AttributeName: sk
             AttributeType: S
-          - AttributeName: expired_at
-            AttributeType: N
+          - AttributeName: lsi_sk_1
+            AttributeType: S
+          - AttributeName: lsi_sk_2
+            AttributeType: S
+          - AttributeName: lsi_sk_3
+            AttributeType: S
+          - AttributeName: lsi_sk_4
+            AttributeType: S
+          - AttributeName: lsi_sk_5
+            AttributeType: S
         BillingMode: PAY_PER_REQUEST
         DeletionProtectionEnabled: ${param:deletionProtection}
         KeySchema:
@@ -103,6 +111,16 @@ resources:
             AttributeType: S
           - AttributeName: sk
             AttributeType: S
+          - AttributeName: lsi_sk_1
+            AttributeType: S
+          - AttributeName: lsi_sk_2
+            AttributeType: S
+          - AttributeName: lsi_sk_3
+            AttributeType: S
+          - AttributeName: lsi_sk_4
+            AttributeType: S
+          - AttributeName: lsi_sk_5
+            AttributeType: S
         BillingMode: PAY_PER_REQUEST
         DeletionProtectionEnabled: ${param:deletionProtection}
         KeySchema:
@@ -163,8 +181,16 @@ resources:
             AttributeType: S
           - AttributeName: sk
             AttributeType: S
-          - AttributeName: expired_at
-            AttributeType: N
+          - AttributeName: lsi_sk_1
+            AttributeType: S
+          - AttributeName: lsi_sk_2
+            AttributeType: S
+          - AttributeName: lsi_sk_3
+            AttributeType: S
+          - AttributeName: lsi_sk_4
+            AttributeType: S
+          - AttributeName: lsi_sk_5
+            AttributeType: S
         BillingMode: PAY_PER_REQUEST
         DeletionProtectionEnabled: ${param:deletionProtection}
         KeySchema:

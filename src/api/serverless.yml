@@ -18,6 +18,8 @@ provider:
   apiGateway:
     restApiId: ${param:restApiId}
     restApiRootResourceId: ${param:restApiRootResourceId}
+  environment:
+    LOG_LEVEL: ${param:logLevel}
   # For now it is sufficient to not use AWS X-Ray tracing to develop this microservice. Comment out to save cost
   # tracing:
   #   lambda: true
@@ -31,6 +33,8 @@ params:
     disableRollback: true
     restApiId: ns1o12mqe1
     restApiRootResourceId: webfruxv5f
+    logLevel: INFO
+    moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
   prod:
     profile: darkord
     region: ap-southeast-1
@@ -39,6 +43,8 @@ params:
     disableRollback: false
     restApiId: udz4iyqum3
     restApiRootResourceId: sonnsq55fh
+    logLevel: INFO
+    moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
 
 custom:
   prune:
@@ -57,6 +63,8 @@ functions:
     package:
       patterns:
         - "sign-up/**"
+    layers:
+      - ${param:moduleLayerArn}
     events:
       - http:
           method: POST
@@ -68,3 +76,4 @@ plugins:
   - serverless-prune-plugin
   - serverless-iam-roles-per-function
   - serverless-deployment-bucket
+  - serverless-latest-layer-version
