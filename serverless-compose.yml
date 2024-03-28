@@ -1,0 +1,3 @@
+services:
+  auth-api:
+    path: src/api

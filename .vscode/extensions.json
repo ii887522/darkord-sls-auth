@@ -1,0 +1,22 @@
+{
+  "recommendations": [
+    "njpwerner.autodocstring",
+    "boto3typed.boto3-ide",
+    "aaron-bond.better-comments",
+    "ms-python.black-formatter",
+    "codeium.codeium",
+    "editorconfig.editorconfig",
+    "usernamehw.errorlens",
+    "ms-python.flake8",
+    "mhutchie.git-graph",
+    "github.vscode-github-actions",
+    "eamodio.gitlens",
+    "visualstudioexptteam.vscodeintellicode",
+    "ms-python.isort",
+    "wholroyd.jinja",
+    "yzhang.markdown-all-in-one",
+    "christian-kohler.path-intellisense",
+    "esbenp.prettier-vscode",
+    "ms-python.python"
+  ]
+}

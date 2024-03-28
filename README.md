@@ -39,8 +39,8 @@ Which should result in response similar to the following:
 
 ```json
 {
-    "statusCode": 200,
-    "body": "{\"message\": \"Go Serverless v3.0! Your function executed successfully!\", \"input\": {}}"
+  "statusCode": 200,
+  "body": "{\"message\": \"Go Serverless v3.0! Your function executed successfully!\", \"input\": {}}"
 }
 ```
 
