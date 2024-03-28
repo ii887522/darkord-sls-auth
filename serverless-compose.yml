@@ -1,3 +1,5 @@
 services:
+  auth-db:
+    path: src/db
   auth-api:
     path: src/api
