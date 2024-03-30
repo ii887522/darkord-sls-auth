@@ -1,5 +1,5 @@
 import logging
-from typing import cast
+import typing
 
 import common
 
@@ -7,5 +7,5 @@ import common
 class SensitiveFormatter(logging.Formatter):
     def format(self, record):
         record.msg = common.mask_sensitive(data=record.msg)
-        record.args = cast(tuple, common.mask_sensitive(data=record.args))
+        record.args = typing.cast(tuple, common.mask_sensitive(data=record.args))
         return super().format(record)

@@ -1,12 +1,7 @@
-import json
-
+import common
 from common_decorators import log_event
 
 
 @log_event
 def handler(event, context):
-    return {
-        "statusCode": 200,
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({}),
-    }
+    return common.gen_api_resp(code=2000)

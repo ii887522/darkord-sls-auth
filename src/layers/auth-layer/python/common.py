@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import simplejson as json
+
 SENSITIVE_PARAMS = {
     "Postman-Token",
     "x-api-key",
@@ -46,3 +48,11 @@ def mask_sensitive(data, extra_senstive_params: set[str] = set()):
         )
 
     return data
+
+
+def gen_api_resp(code: int, msg="", payload: dict = {}):
+    return {
+        "statusCode": int(str(code)[:3]),
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps({"code": code, "message": msg, "payload": payload}),
+    }

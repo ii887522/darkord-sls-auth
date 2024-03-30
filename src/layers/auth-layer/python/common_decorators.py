@@ -19,7 +19,7 @@ LOGGER.handlers[0].setFormatter(SensitiveFormatter(LOG_FMT))
 
 
 def log_event(f):
-    def inner(event, context):
+    def handler(event, context):
         LOGGER.handlers[0].setFormatter(
             SensitiveFormatter("[EVENT] [%(pathname)s:%(lineno)d] %(message)s")
         )
@@ -28,4 +28,4 @@ def log_event(f):
         LOGGER.handlers[0].setFormatter(SensitiveFormatter(LOG_FMT))
         return f(event, context)
 
-    return inner
+    return handler
