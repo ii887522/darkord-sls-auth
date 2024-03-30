@@ -18,6 +18,15 @@ SENSITIVE_PARAMS = {
     "authorizationToken",
 }
 
+API_ERR_MSG = {
+    400: "Bad request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Data was not found",
+    409: "Conflict",
+    500: "Internal server error",
+}
+
 
 def mask_sensitive(data, extra_senstive_params: set[str] = set()):
     if data is None or isinstance(data, (bool, int, float, Decimal, str)):
@@ -50,9 +59,17 @@ def mask_sensitive(data, extra_senstive_params: set[str] = set()):
     return data
 
 
-def gen_api_resp(code: int, msg="", payload: dict = {}):
+def gen_api_resp(code: int, headers: dict = {}, msg="", payload: dict = {}):
+    status_code = int(str(code)[:3])
+
     return {
-        "statusCode": int(str(code)[:3]),
-        "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({"code": code, "message": msg, "payload": payload}),
+        "statusCode": status_code,
+        "headers": {"Content-Type": "application/json", **headers},
+        "body": json.dumps(
+            {
+                "code": code,
+                "message": msg if msg else API_ERR_MSG.get(status_code, ""),
+                "payload": payload,
+            }
+        ),
     }
