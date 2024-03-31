@@ -4,7 +4,8 @@
   "description": "Auth microservice that provides authentication and authorization to enhance the security of any web server",
   "scripts": {
     "deploy:stage": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy --stage stage",
-    "deploy:prod": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy --stage prod --verbose"
+    "deploy:prod": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy --stage prod --verbose",
+    "deploy:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-api:deploy function --stage stage -f"
   },
   "repository": {
     "type": "git",

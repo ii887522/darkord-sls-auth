@@ -28,23 +28,25 @@ API_ERR_MSG = {
 }
 
 
-def mask_sensitive(data, extra_senstive_params: set[str] = set()):
+def mask_sensitive(data, extra_sensitive_params: set[str] = set()):
     if data is None or isinstance(data, (bool, int, float, Decimal, str)):
         return data
 
     if isinstance(data, list):
         return [
-            mask_sensitive(data=v, extra_senstive_params=extra_senstive_params)
+            mask_sensitive(data=v, extra_sensitive_params=extra_sensitive_params)
             for v in data
         ]
 
     if isinstance(data, dict):
+        sensitive_params = SENSITIVE_PARAMS.union(extra_sensitive_params)
+
         for k in data:
             data[k] = (
                 "****"
-                if k in SENSITIVE_PARAMS.union(extra_senstive_params)
+                if k in sensitive_params
                 else mask_sensitive(
-                    data=data[k], extra_senstive_params=extra_senstive_params
+                    data=data[k], extra_sensitive_params=extra_sensitive_params
                 )
             )
 
@@ -52,7 +54,7 @@ def mask_sensitive(data, extra_senstive_params: set[str] = set()):
 
     if isinstance(data, tuple):
         return tuple(
-            mask_sensitive(data=v, extra_senstive_params=extra_senstive_params)
+            mask_sensitive(data=v, extra_sensitive_params=extra_sensitive_params)
             for v in data
         )
 

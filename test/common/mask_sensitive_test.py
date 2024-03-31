@@ -35,7 +35,7 @@ def test_dict():
 
     assert common.mask_sensitive(
         data={"code": -30.010, "jti": Decimal("-30.010"), "api-key": ""},
-        extra_senstive_params={"api-key"},
+        extra_sensitive_params={"api-key"},
     ) == {"code": "****", "jti": "****", "api-key": "****"}
 
 

@@ -1,10 +1,17 @@
 import logging
 
+import boto3
 import common
+import constants
 from api_exception import ApiException
+from botocore.config import Config
 from common_decorators import log_event
 
 LOGGER = logging.getLogger()
+
+DYNAMODB = boto3.resource(
+    "dynamodb", constants.REGION, config=Config(tcp_keepalive=True)
+)
 
 
 @log_event
