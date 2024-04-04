@@ -1,3 +1,6 @@
+import hashlib
+import os
+import secrets
 from decimal import Decimal
 
 import simplejson as json
@@ -72,6 +75,24 @@ def gen_api_resp(code: int, headers: dict = {}, msg="", payload: dict = {}):
                 "code": code,
                 "message": msg if msg else API_ERR_MSG.get(status_code, ""),
                 "payload": payload,
-            }
+            },
         ),
     }
+
+
+def hash_secret(secret: str) -> tuple[str, str]:
+    salt = os.urandom(32)
+
+    hash = hashlib.scrypt(
+        secret.encode(),
+        salt=salt,
+        n=16384,
+        r=8,
+        p=1,
+    )
+
+    return hash.hex(), salt.hex()
+
+
+def gen_secret_digits(digit_count=6) -> str:
+    return str(secrets.randbelow(10**digit_count)).zfill(digit_count)

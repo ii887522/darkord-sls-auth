@@ -21,6 +21,8 @@ provider:
   environment:
     LOG_LEVEL: ${param:logLevel}
     REGION: ${param:region}
+    STAGE: ${sls:stage}
+    STAGE_DASH_PREFIX: ${param:stageDashPrefix}
   # For now it is sufficient to not use AWS X-Ray tracing to develop this microservice. Comment out to save cost
   # tracing:
   #   lambda: true
@@ -36,6 +38,8 @@ params:
     restApiRootResourceId: webfruxv5f
     logLevel: INFO
     moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
+    stageDashPrefix: stage-
+    maxSignUpAttempt: 20
   prod:
     profile: darkord
     region: ap-southeast-1
@@ -46,6 +50,8 @@ params:
     restApiRootResourceId: sonnsq55fh
     logLevel: INFO
     moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
+    stageDashPrefix: ""
+    maxSignUpAttempt: 20
 
 custom:
   prune:
@@ -71,6 +77,8 @@ functions:
           method: POST
           path: /auth/user
           private: true
+    environment:
+      MAX_SIGN_UP_ATTEMPT: ${param:maxSignUpAttempt}
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work

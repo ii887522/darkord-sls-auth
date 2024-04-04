@@ -7,6 +7,15 @@ MODULE_NAME = "auth"
 PYTHON_VERSION = "3.11"
 PLATFORM = "manylinux2014_aarch64"
 
+try:
+    # Cleanup previous installation
+    print("Removing src/layers/auth-layer/python/lib")
+    shutil.rmtree("src/layers/auth-layer/python/lib")
+
+except FileNotFoundError:
+    # Previous installation already cleaned up which fulfills the requirement, so ignore this exception
+    pass
+
 # Download and install Python dependency packages
 print(
     subprocess.run(
