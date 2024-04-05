@@ -1,5 +1,4 @@
 import logging
-import time
 
 import auth_attempt
 import auth_constants
@@ -7,6 +6,7 @@ import auth_user
 import boto3
 import common
 import constants
+from auth_attempt import AuthAttemptDb
 from botocore.config import Config
 from common_decorators import log_event
 from common_exception import CommonException
@@ -22,17 +22,22 @@ DYNAMODB = boto3.resource(
     config=Config(tcp_keepalive=True),
 )
 
+AUTH_ATTEMPT_TABLE = DYNAMODB.Table(auth_constants.AUTH_ATTEMPT_TABLE_NAME)
+
 
 class RequestSchema(BaseRequestSchema):
     username = TrimmedField(
-        inner=fields.String(), required=True, validate=Length(min=1)
+        inner=fields.String(),
+        required=True,
+        validate=Length(min=1),
     )
 
     email_addr = fields.Email(required=True, validate=Length(min=1))
     password = fields.String(required=True, validate=Length(min=1))
 
     locale = fields.String(
-        validate=OneOf((auth_constants.LANG_EN,)), load_default=auth_constants.LANG_EN
+        validate=OneOf((auth_constants.LANG_EN,)),
+        load_default=auth_constants.LANG_EN,
     )
 
     extra = fields.Dict(load_default={})
@@ -44,21 +49,19 @@ class ResponseSchema(BaseResponseSchema):
 
 @log_event
 def handler(event, context):
+    user_ip = event["requestContext"]["identity"]["sourceIp"]
+
     try:
-        req = RequestSchema().load_and_dump(event=event)
-        user_ip = event["requestContext"]["identity"]["sourceIp"]
+        req = RequestSchema().load_and_dump(event)
         username = req["username"]
         email_addr = req["email_addr"]
         password, salt = common.hash_secret(req["password"])
         locale = req["locale"]
         extra = req["extra"]
         verification_code = common.gen_secret_digits()
-
-        # Verification code will be expired after 3 minutes
-        code_expired_at = int(time.time()) + 180
+        code_expired_at = common.extend_current_timestamp(minutes=3)
 
         try:
-
             transact_items: list = [
                 auth_attempt.get_cond_check_transact_item(
                     action=auth_constants.ACTION_SIGN_UP,
@@ -87,17 +90,27 @@ def handler(event, context):
             LOGGER.debug("db_resp: %s", db_resp)
 
         except DYNAMODB.meta.client.exceptions.ConditionalCheckFailedException as err:
-            if (
-                err.response.get("Item", {}).get("attempt", 0)
-                >= auth_constants.MAX_SIGN_UP_ATTEMPT
-            ):
+            item = err.response.get("Item", {})
+
+            if item.get("attempt", 0) >= auth_constants.MAX_SIGN_UP_ATTEMPT:
                 raise CommonException(code=4030)
 
-            # TODO: Continue implement user error handling
+            if item.get("pk", "").startswith("Username#"):
+                raise CommonException(code=4090, msg="Username already exists")
+
+            if item.get("pk", "").startswith("EmailAddr#"):
+                raise CommonException(code=4091, msg="Email address already exists")
+
+        # TODO: Generate a new session token that is authorized to call verify-email API. This token is only valid for 3 minutes
 
         return common.gen_api_resp(code=2000)
 
     except CommonException as err:
+        AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE).incr(
+            action=auth_constants.ACTION_SIGN_UP,
+            ip_addr=user_ip,
+        )
+
         return common.gen_api_resp(code=err.code, msg=err.msg)
 
     except Exception as err:

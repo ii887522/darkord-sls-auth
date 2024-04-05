@@ -1,7 +1,9 @@
 import hashlib
 import os
 import secrets
+import time
 from decimal import Decimal
+from typing import Literal
 
 import simplejson as json
 
@@ -73,11 +75,15 @@ def gen_api_resp(code: int, headers: dict = {}, msg="", payload: dict = {}):
         "body": json.dumps(
             {
                 "code": code,
-                "message": msg if msg else API_ERR_MSG.get(status_code, ""),
+                "message": msg or API_ERR_MSG.get(status_code, ""),
                 "payload": payload,
             },
         ),
     }
+
+
+def convert_snake_case_to_pascal_case(src: str) -> str:
+    return src.replace("_", " ").title().replace(" ", "")
 
 
 def hash_secret(secret: str) -> tuple[str, str]:
@@ -96,3 +102,46 @@ def hash_secret(secret: str) -> tuple[str, str]:
 
 def gen_secret_digits(digit_count=6) -> str:
     return str(secrets.randbelow(10**digit_count)).zfill(digit_count)
+
+
+def get_current_timestamp(unit: Literal["seconds", "milliseconds"] = "seconds") -> int:
+    resp = time.time()
+
+    if unit == "milliseconds":
+        resp *= 1000
+
+    return int(resp)
+
+
+def extend_current_timestamp(
+    src_timestamp=0,
+    years=0,
+    months=0,
+    days=0,
+    hours=0,
+    minutes=0,
+    seconds=0,
+    milliseconds=0,
+    unit: Literal["seconds", "milliseconds"] = "seconds",
+) -> int:
+    # Convert and do everything in milliseconds to make logic simpler
+
+    if unit == "seconds":
+        # src_timestamp is in seconds, need to convert to milliseconds
+        src_timestamp *= 1000
+
+    resp = (
+        (src_timestamp or get_current_timestamp(unit="milliseconds"))
+        + years * 31_536_000_000
+        + months * 2_592_000_000
+        + days * 86_400_000
+        + hours * 3_600_000
+        + minutes * 60_000
+        + seconds * 1_000
+        + milliseconds
+    )
+
+    if unit == "seconds":
+        resp //= 1000
+
+    return resp

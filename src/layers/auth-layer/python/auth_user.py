@@ -1,6 +1,6 @@
 import auth_constants
 from common_marshmallow import BaseSchema
-from marshmallow import ValidationError, fields, pre_load, validates_schema
+from marshmallow import ValidationError, fields, post_load, pre_load, validates_schema
 
 
 class AuthUserDbSchema(BaseSchema):
@@ -18,10 +18,10 @@ class AuthUserDbSchema(BaseSchema):
 
     @pre_load
     def gen(self, data, **kwargs):
-        if not data.get("password"):
+        if data.get("password"):
             data["pk"] = f"Username#{data['username']}"
 
-        elif not data.get("verification_code"):
+        elif data.get("verification_code"):
             data["pk"] = f"EmailAddr#{data['email_addr']}"
 
         return data
@@ -47,6 +47,18 @@ class AuthUserDbSchema(BaseSchema):
             if not data.get("code_expired_at"):
                 raise ValidationError("code_expired_at is required")
 
+    @post_load
+    def convert_list_to_set(self, data, **kwargs):
+        verified_attrs = data.get("verified_attrs")
+
+        if verified_attrs:
+            data["verified_attrs"] = set(verified_attrs)
+
+        else:
+            data.pop("verified_attrs", None)
+
+        return data
+
 
 def get_put_transact_item(
     username: str,
@@ -59,30 +71,30 @@ def get_put_transact_item(
     code_expired_at=0,
     ret_val_on_cond_check_fail="ALL_OLD",
 ) -> dict:
-    item: dict = {"username": username, "email_addr": email_addr}
+    user: dict = {"username": username, "email_addr": email_addr}
 
     if password:
-        item["password"] = password
+        user["password"] = password
 
     if salt:
-        item["salt"] = salt
+        user["salt"] = salt
 
     if locale:
-        item["locale"] = locale
+        user["locale"] = locale
 
     if extra:
-        item["extra"] = extra
+        user["extra"] = extra
 
     if verification_code:
-        item["verification_code"] = verification_code
+        user["verification_code"] = verification_code
 
     if code_expired_at:
-        item["code_expired_at"] = code_expired_at
+        user["code_expired_at"] = code_expired_at
 
     return {
         "Put": {
             "TableName": auth_constants.AUTH_USER_TABLE_NAME,
-            "Item": AuthUserDbSchema().load_and_dump(item),
+            "Item": AuthUserDbSchema().load_and_dump(user),
             "ConditionExpression": "attribute_not_exists(pk)",
             "ReturnValuesOnConditionCheckFailure": ret_val_on_cond_check_fail,
         }

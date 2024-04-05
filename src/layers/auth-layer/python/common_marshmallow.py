@@ -17,14 +17,9 @@ class BaseSchema(Schema):
 class BaseRequestSchema(BaseSchema):
     def load_and_dump(self, event):
         try:
-            path_params = event["pathParameters"] if event["pathParameters"] else {}
-
-            qs_params = (
-                event["queryStringParameters"] if event["queryStringParameters"] else {}
-            )
-
-            req_params = json.loads(event["body"] if event["body"] else "{}")
-
+            path_params = event["pathParameters"] or {}
+            qs_params = event["queryStringParameters"] or {}
+            req_params = json.loads(event["body"] or "{}")
             return super().load_and_dump({**path_params, **qs_params, **req_params})
 
         except JSONDecodeError as err:
