@@ -2,6 +2,7 @@ import logging
 
 import auth_attempt
 import auth_constants
+import auth_jwt
 import auth_user
 import boto3
 import common
@@ -23,6 +24,12 @@ DYNAMODB = boto3.resource(
 )
 
 AUTH_ATTEMPT_TABLE = DYNAMODB.Table(auth_constants.AUTH_ATTEMPT_TABLE_NAME)
+SSM = boto3.client("ssm", constants.REGION, config=Config(tcp_keepalive=True))
+
+SESSION_TOKEN_SECRET = SSM.get_parameter(
+    Name=auth_constants.SESSION_TOKEN_PARAM_NAME,
+    WithDecryption=True,
+)["Parameter"].get("Value", "")
 
 
 class RequestSchema(BaseRequestSchema):
@@ -101,9 +108,21 @@ def handler(event, context):
             if item.get("pk", "").startswith("EmailAddr#"):
                 raise CommonException(code=4091, msg="Email address already exists")
 
-        # TODO: Generate a new session token that is authorized to call verify-email API. This token is only valid for 3 minutes
+        # Generate a new session token that is authorized to call verify-email API
+        session_token = auth_jwt.gen_token(
+            key=SESSION_TOKEN_SECRET,
+            type=auth_constants.TOKEN_TYPE_SESSION,
+            exp=common.extend_current_timestamp(minutes=3),
+            sub=email_addr,
+            name=username,
+            aud=auth_constants.ACTION_VERIFY_ATTR,
+            dest=auth_constants.ACTION_INIT_MFA,
+        )
 
-        return common.gen_api_resp(code=2000)
+        return common.gen_api_resp(
+            code=2000,
+            payload=ResponseSchema().load_and_dump({"session_token": session_token}),
+        )
 
     except CommonException as err:
         AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE).incr(
