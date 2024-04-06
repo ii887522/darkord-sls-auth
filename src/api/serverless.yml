@@ -38,6 +38,9 @@ params:
     restApiRootResourceId: webfruxv5f
     logLevel: INFO
     moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
+    sessionTokenParamArn: arn:aws:ssm:us-east-1:${aws:accountId}:parameter/auth/api/token/session
+    authAttemptTableArn: arn:aws:dynamodb:us-east-1:${aws:accountId}:table/stage-auth-attempt
+    authUserTableArn: arn:aws:dynamodb:us-east-1:${aws:accountId}:table/stage-auth-user
     stageDashPrefix: stage-
     maxSignUpAttempt: 20
   prod:
@@ -50,6 +53,9 @@ params:
     restApiRootResourceId: sonnsq55fh
     logLevel: INFO
     moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
+    sessionTokenParamArn: arn:aws:ssm:ap-southeast-1:${aws:accountId}:parameter/auth/api/token/session
+    authAttemptTableArn: arn:aws:dynamodb:ap-southeast-1:${aws:accountId}:table/auth-attempt
+    authUserTableArn: arn:aws:dynamodb:ap-southeast-1:${aws:accountId}:table/auth-user
     stageDashPrefix: ""
     maxSignUpAttempt: 20
 
@@ -70,6 +76,24 @@ functions:
     package:
       patterns:
         - "sign-up/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - ssm:GetParameter
+        Resource:
+          - ${param:sessionTokenParamArn}
+      - Effect: Allow
+        Action:
+          - dynamodb:TransactWriteItems
+        Resource:
+          - ${param:authAttemptTableArn}
+          - ${param:authUserTableArn}
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
+        Resource:
+          - ${param:authAttemptTableArn}
     layers:
       - ${param:moduleLayerArn}
     events:

@@ -108,6 +108,9 @@ def handler(event, context):
             if item.get("pk", "").startswith("EmailAddr#"):
                 raise CommonException(code=4091, msg="Email address already exists")
 
+        # TODO: Send a verification email to the given email address with the verification code
+        # TODO: Email content based on the given locale
+
         # Generate a new session token that is authorized to call verify-email API
         session_token = auth_jwt.gen_token(
             key=SESSION_TOKEN_SECRET,
