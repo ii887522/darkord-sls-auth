@@ -6,6 +6,7 @@ import auth_jwt
 import auth_user
 import boto3
 import common
+import common_db
 import constants
 from auth_attempt import AuthAttemptDb
 from botocore.config import Config
@@ -96,17 +97,21 @@ def handler(event, context):
             )
             LOGGER.debug("db_resp: %s", db_resp)
 
-        except DYNAMODB.meta.client.exceptions.ConditionalCheckFailedException as err:
-            item = err.response.get("Item", {})
+        except DYNAMODB.meta.client.exceptions.TransactionCanceledException as err:
+            for reason in err.response["CancellationReasons"]:
+                if reason["Code"] != "ConditionalCheckFailed":
+                    continue
 
-            if item.get("attempt", 0) >= auth_constants.MAX_SIGN_UP_ATTEMPT:
-                raise CommonException(code=4030)
+                item = common_db.deserialize_item(item=reason.get("Item", {}))
 
-            if item.get("pk", "").startswith("Username#"):
-                raise CommonException(code=4090, msg="Username already exists")
+                if item.get("attempt", 0) >= auth_constants.MAX_SIGN_UP_ATTEMPT:
+                    raise CommonException(code=4030)
 
-            if item.get("pk", "").startswith("EmailAddr#"):
-                raise CommonException(code=4091, msg="Email address already exists")
+                if item.get("pk", "").startswith("Username#"):
+                    raise CommonException(code=4090, msg="Username already exists")
+
+                if item.get("pk", "").startswith("EmailAddr#"):
+                    raise CommonException(code=4091, msg="Email address already exists")
 
         # TODO: Send a verification email to the given email address with the verification code
         # TODO: Email content based on the given locale
@@ -128,10 +133,12 @@ def handler(event, context):
         )
 
     except CommonException as err:
-        AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE).incr(
-            action=auth_constants.ACTION_SIGN_UP,
-            ip_addr=user_ip,
-        )
+        # Only increment if error message is not Forbidden, otherwise user keep trying will never be able to sign up
+        if err.code != 4030:
+            AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE).incr(
+                action=auth_constants.ACTION_SIGN_UP,
+                ip_addr=user_ip,
+            )
 
         return common.gen_api_resp(code=err.code, msg=err.msg)
 

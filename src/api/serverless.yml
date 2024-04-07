@@ -46,7 +46,7 @@ params:
   prod:
     profile: darkord
     region: ap-southeast-1
-    memorySize: 256
+    memorySize: 384
     logRetentionInDays: 7
     disableRollback: false
     restApiId: udz4iyqum3
@@ -84,16 +84,17 @@ functions:
           - ${param:sessionTokenParamArn}
       - Effect: Allow
         Action:
-          - dynamodb:TransactWriteItems
+          - dynamodb:ConditionCheckItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
         Resource:
           - ${param:authAttemptTableArn}
-          - ${param:authUserTableArn}
       - Effect: Allow
         Action:
           - dynamodb:PutItem
           - dynamodb:UpdateItem
         Resource:
-          - ${param:authAttemptTableArn}
+          - ${param:authUserTableArn}
     layers:
       - ${param:moduleLayerArn}
     events:
