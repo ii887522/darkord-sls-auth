@@ -53,6 +53,7 @@ class RequestSchema(BaseRequestSchema):
 
 class ResponseSchema(BaseResponseSchema):
     session_token = fields.String()
+    verification_code = fields.String()  # TODO: Only for testing purpose. To be removed
 
 
 @log_event
@@ -129,7 +130,12 @@ def handler(event, context):
 
         return common.gen_api_resp(
             code=2000,
-            payload=ResponseSchema().load_and_dump({"session_token": session_token}),
+            payload=ResponseSchema().load_and_dump(
+                {
+                    "session_token": session_token,
+                    "verification_code": verification_code,  # TODO: Only for testing purpose. To be removed
+                }
+            ),
         )
 
     except CommonException as err:
