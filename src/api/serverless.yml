@@ -37,6 +37,7 @@ params:
     restApiId: ns1o12mqe1
     restApiRootResourceId: webfruxv5f
     logLevel: INFO
+    commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
     moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
     sessionTokenParamArn: arn:aws:ssm:us-east-1:${aws:accountId}:parameter/auth/api/token/session
     authAttemptTableArn: arn:aws:dynamodb:us-east-1:${aws:accountId}:table/stage-auth-attempt
@@ -52,6 +53,7 @@ params:
     restApiId: udz4iyqum3
     restApiRootResourceId: sonnsq55fh
     logLevel: INFO
+    commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
     moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
     sessionTokenParamArn: arn:aws:ssm:ap-southeast-1:${aws:accountId}:parameter/auth/api/token/session
     authAttemptTableArn: arn:aws:dynamodb:ap-southeast-1:${aws:accountId}:table/auth-attempt
@@ -96,6 +98,7 @@ functions:
         Resource:
           - ${param:authUserTableArn}
     layers:
+      - ${param:commonLayerArn}
       - ${param:moduleLayerArn}
     events:
       - http:

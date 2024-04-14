@@ -63,7 +63,7 @@ def handler(event, context):
         req = RequestSchema().load_and_dump(event)
         username = req["username"]
         email_addr = req["email_addr"]
-        password, salt = common.hash_secret(req["password"])
+        password, salt = common.hash_secret(secret=req["password"])
         locale = req["locale"]
         extra = req["extra"]
         verification_code = common.gen_secret_digits()
