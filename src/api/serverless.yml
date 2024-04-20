@@ -43,6 +43,7 @@ params:
     stagePrefix: stage_
     stageDashPrefix: stage-
     maxSignUpAttempt: 20
+    maxVerifyAttrAttempt: 3
     authorizerId: pmob2d
   prod:
     profile: darkord
@@ -58,6 +59,7 @@ params:
     stagePrefix: ""
     stageDashPrefix: ""
     maxSignUpAttempt: 20
+    maxVerifyAttrAttempt: 3
     authorizerId: "" # TODO: Deploy authorizer to production and note the ID
 
 custom:
@@ -140,6 +142,8 @@ functions:
           authorizer:
             type: TOKEN
             authorizerId: ${param:authorizerId}
+    environment:
+      MAX_VERIFY_ATTR_ATTEMPT: ${param:maxVerifyAttrAttempt}
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work

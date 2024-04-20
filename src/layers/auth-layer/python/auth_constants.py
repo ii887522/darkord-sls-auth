@@ -25,8 +25,8 @@ AUDIENCE_ACTIONS = (ACTION_VERIFY_ATTR, ACTION_INIT_MFA)
 
 # Max action attempts
 MAX_ACTION_ATTEMPT_DICT = {
-    ACTION_SIGN_UP: int(os.environ.get("MAX_SIGN_UP_ATTEMPT", 20)),
-    ACTION_VERIFY_ATTR: int(os.environ.get("MAX_VERIFY_ATTR_ATTEMPT", 3)),
+    ACTION_SIGN_UP: int(os.environ.get("MAX_SIGN_UP_ATTEMPT", 0)),
+    ACTION_VERIFY_ATTR: int(os.environ.get("MAX_VERIFY_ATTR_ATTEMPT", 0)),
 }
 
 # Action JWT token validities
