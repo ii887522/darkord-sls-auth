@@ -2,6 +2,8 @@ import logging
 
 import auth_constants
 import common
+import constants
+from boto3.dynamodb.conditions import Attr
 from common_marshmallow import BaseSchema
 from marshmallow import ValidationError, fields, pre_load, validates_schema
 
@@ -40,10 +42,43 @@ class AuthAttemptDb:
         self.dynamodb = dynamodb
         self.table = table
 
+    def get(self, action: str, ip_addr="", jti="") -> dict:
+        action = common.convert_snake_case_to_pascal_case(src=action)
+
+        db_resp = self.table.get_item(
+            Key={"pk": f"{action}#{ip_addr or jti}", "sk": "Attempt"},
+            ProjectionExpression="attempt,expired_at",
+        )
+        LOGGER.debug("db_resp: %s", db_resp)
+
+        return db_resp.get("Item", {})
+
+    def is_blocked(self, action: str, ip_addr="", jti="") -> bool:
+        attempt = self.get(action=action, ip_addr=ip_addr, jti=jti)
+
+        return bool(
+            attempt
+            and (attempt.get("expired_at") or constants.MAX_TIMESTAMP_IN_SECONDS)
+            > common.get_current_timestamp()
+            and attempt["attempt"] >= auth_constants.MAX_ACTION_ATTEMPT_DICT[action]
+        )
+
     def incr(self, action: str, ip_addr="", jti="", attempt=1):
         expired_at = common.extend_current_timestamp(hours=1)
 
         try:
+            db_resp = self.table.update_item(
+                Key={
+                    "pk": f"{common.convert_snake_case_to_pascal_case(src=action)}#{ip_addr or jti}",
+                    "sk": "Attempt",
+                },
+                UpdateExpression="SET attempt = attempt + :incr, expired_at = :ea",
+                ConditionExpression=Attr("pk").exists(),
+                ExpressionAttributeValues={":incr": attempt, ":ea": expired_at},
+            )
+            LOGGER.debug("db_resp: %s", db_resp)
+
+        except self.dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
             attempt_item = {
                 "action": action,
                 "attempt": attempt,
@@ -58,37 +93,47 @@ class AuthAttemptDb:
 
             db_resp = self.table.put_item(
                 Item=AuthAttemptDbSchema().load_and_dump(attempt_item),
-                ConditionExpression="attribute_not_exists(pk)",
+                ConditionExpression=Attr("pk").not_exists(),
             )
             LOGGER.debug("db_resp: %s", db_resp)
 
-        except self.dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
+    def block(self, action: str, ip_addr="", jti="", is_permanent=False):
+        expired_at = common.extend_current_timestamp(
+            minutes=(
+                auth_constants.JWT_TOKEN_VALIDITY_IN_MINUTES_DICT[action] if jti else 60
+            )
+        )
+
+        try:
             db_resp = self.table.update_item(
                 Key={
                     "pk": f"{common.convert_snake_case_to_pascal_case(src=action)}#{ip_addr or jti}",
                     "sk": "Attempt",
                 },
-                UpdateExpression="SET attempt = attempt + :incr, expired_at = :ea",
-                ExpressionAttributeValues={":incr": attempt, ":ea": expired_at},
+                UpdateExpression="SET attempt = :a, expired_at = :ea",
+                ConditionExpression=Attr("pk").exists(),
+                ExpressionAttributeValues={
+                    ":a": auth_constants.MAX_ACTION_ATTEMPT_DICT[action],
+                    ":ea": None if is_permanent else expired_at,
+                },
             )
             LOGGER.debug("db_resp: %s", db_resp)
 
+        except self.dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
+            attempt_item = {
+                "action": action,
+                "attempt": auth_constants.MAX_ACTION_ATTEMPT_DICT[action],
+                "expired_at": expired_at,
+            }
 
-def get_cond_check_transact_item(
-    action: str,
-    ip_addr: str,
-    max_attempt: int,
-    ret_val_on_cond_check_fail="ALL_OLD",
-) -> dict:
-    action = common.convert_snake_case_to_pascal_case(src=action)
+            if ip_addr:
+                attempt_item["ip_addr"] = ip_addr
 
-    return {
-        "ConditionCheck": {
-            "TableName": auth_constants.AUTH_ATTEMPT_TABLE_NAME,
-            "Key": {"pk": f"{action}#{ip_addr}", "sk": "Attempt"},
-            # Temporarily block the user if they have already made maximum attempts to reduce brute-force attack
-            "ConditionExpression": "attribute_not_exists(attempt) or attempt < :ma",
-            "ExpressionAttributeValues": {":ma": max_attempt},
-            "ReturnValuesOnConditionCheckFailure": ret_val_on_cond_check_fail,
-        },
-    }
+            if jti:
+                attempt_item["jti"] = jti
+
+            db_resp = self.table.put_item(
+                Item=AuthAttemptDbSchema().load_and_dump(attempt_item),
+                ConditionExpression=Attr("pk").not_exists(),
+            )
+            LOGGER.debug("db_resp: %s", db_resp)

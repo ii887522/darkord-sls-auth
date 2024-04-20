@@ -1,4 +1,4 @@
-service: auth-api
+service: auth-funcs
 frameworkVersion: "3"
 
 provider:
@@ -15,9 +15,6 @@ provider:
     name: darkord-sls-${sls:stage}-deployment-bucket
     serverSideEncryption: AES256
     blockPublicAccess: true
-  apiGateway:
-    restApiId: ${param:restApiId}
-    restApiRootResourceId: ${param:restApiRootResourceId}
   environment:
     LOG_LEVEL: ${param:logLevel}
     REGION: ${param:region}
@@ -35,30 +32,22 @@ params:
     memorySize: 192
     logRetentionInDays: 7
     disableRollback: true
-    restApiId: ns1o12mqe1
-    restApiRootResourceId: webfruxv5f
     logLevel: INFO
     commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
     moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
     stagePrefix: stage_
     stageDashPrefix: stage-
-    maxSignUpAttempt: 20
-    authorizerId: pmob2d
   prod:
     profile: darkord
     region: ap-southeast-1
     memorySize: 384
     logRetentionInDays: 7
     disableRollback: false
-    restApiId: udz4iyqum3
-    restApiRootResourceId: sonnsq55fh
     logLevel: INFO
     commonLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:common-layer:latest
     moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
     stagePrefix: ""
     stageDashPrefix: ""
-    maxSignUpAttempt: 20
-    authorizerId: "" # TODO: Deploy authorizer to production and note the ID
 
 custom:
   prune:
@@ -72,74 +61,26 @@ package:
     - "!**"
 
 functions:
-  sign-up:
-    handler: sign-up/handler.handler
+  authorize:
+    handler: authorize/handler.handler
     package:
       patterns:
-        - "sign-up/**"
+        - "authorize/**"
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - ssm:GetParametersByPath
         Resource:
-          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token
       - Effect: Allow
         Action:
           - dynamodb:GetItem
-          - dynamodb:PutItem
-          - dynamodb:UpdateItem
         Resource:
-          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_attempt
-      - Effect: Allow
-        Action:
-          - dynamodb:PutItem
-        Resource:
-          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_valid_token_pair
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_rbac
     layers:
       - ${param:commonLayerArn}
       - ${param:moduleLayerArn}
-    events:
-      - http:
-          method: POST
-          path: /auth/user
-          private: true
-    environment:
-      MAX_SIGN_UP_ATTEMPT: ${param:maxSignUpAttempt}
-  verify-attr:
-    handler: verify-attr/handler.handler
-    package:
-      patterns:
-        - "verify-attr/**"
-    iamRoleStatements:
-      - Effect: Allow
-        Action:
-          - ssm:GetParameter
-        Resource:
-          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
-      - Effect: Allow
-        Action:
-          - dynamodb:GetItem
-          - dynamodb:PutItem
-          - dynamodb:UpdateItem
-        Resource:
-          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_attempt
-      - Effect: Allow
-        Action:
-          - dynamodb:GetItem
-          - dynamodb:UpdateItem
-        Resource:
-          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
-    layers:
-      - ${param:commonLayerArn}
-      - ${param:moduleLayerArn}
-    events:
-      - http:
-          method: POST
-          path: /auth/verify_attr
-          private: true
-          authorizer:
-            type: TOKEN
-            authorizerId: ${param:authorizerId}
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work

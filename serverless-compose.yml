@@ -7,6 +7,10 @@ services:
       # Let only auth-layer deployed first, because auth-layer will get credentials from developer to be reused for
       # subsequent service deployments
       - auth-layer
+  auth-funcs:
+    path: src/funcs
+    dependsOn:
+      - auth-layer
   auth-api:
     path: src/api
     dependsOn:

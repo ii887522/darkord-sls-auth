@@ -1,6 +1,13 @@
+import logging
+from typing import Literal
+
 import auth_constants
+import common
+from boto3.dynamodb.conditions import Attr
 from common_marshmallow import BaseSchema
 from marshmallow import ValidationError, fields, post_load, pre_load, validates_schema
+
+LOGGER = logging.getLogger()
 
 
 class AuthUserDbSchema(BaseSchema):
@@ -58,6 +65,37 @@ class AuthUserDbSchema(BaseSchema):
             data.pop("verified_attrs", None)
 
         return data
+
+
+class AuthUserDb:
+    def __init__(self, table):
+        self.table = table
+
+    def get_verification_code(self, email_addr: str) -> str:
+        db_resp = self.table.get_item(
+            Key={"pk": f"EmailAddr#{email_addr}", "sk": "User"},
+            ProjectionExpression="verification_code,code_expired_at",
+        )
+        LOGGER.debug("db_resp: %s", db_resp)
+
+        item = db_resp.get("Item", {})
+
+        return (
+            item.get("verification_code", "")
+            if common.get_current_timestamp() < item.get("code_expired_at", 0)
+            else ""
+        )
+
+    def mark_attrs_as_verified(
+        self, username: str, attrs: set[Literal["email_addr"]] = set()
+    ):
+        db_resp = self.table.update_item(
+            Key={"pk": f"Username#{username}", "sk": "User"},
+            UpdateExpression="ADD verified_attrs :va",
+            ConditionExpression=Attr("pk").exists(),
+            ExpressionAttributeValues={":va": attrs},
+        )
+        LOGGER.debug("db_resp: %s", db_resp)
 
 
 def get_put_transact_item(

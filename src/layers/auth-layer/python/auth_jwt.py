@@ -3,7 +3,7 @@ import uuid
 import jwt
 
 
-def gen_token(
+def encode(
     key: str,
     type: str,
     exp: int,

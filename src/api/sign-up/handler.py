@@ -1,6 +1,5 @@
 import logging
 
-import auth_attempt
 import auth_constants
 import auth_jwt
 import auth_user
@@ -19,31 +18,27 @@ from marshmallow.validate import Length, OneOf
 LOGGER = logging.getLogger()
 
 DYNAMODB = boto3.resource(
-    "dynamodb",
-    constants.REGION,
-    config=Config(tcp_keepalive=True),
+    "dynamodb", constants.REGION, config=Config(tcp_keepalive=True)
 )
 
 AUTH_ATTEMPT_TABLE = DYNAMODB.Table(auth_constants.AUTH_ATTEMPT_TABLE_NAME)
 SSM = boto3.client("ssm", constants.REGION, config=Config(tcp_keepalive=True))
 
 SESSION_TOKEN_SECRET = SSM.get_parameter(
-    Name=auth_constants.SESSION_TOKEN_PARAM_NAME,
-    WithDecryption=True,
+    Name=auth_constants.SESSION_TOKEN_PARAM_NAME, WithDecryption=True
 )["Parameter"].get("Value", "")
 
 
 class RequestSchema(BaseRequestSchema):
     username = TrimmedField(
-        inner=fields.String(),
-        required=True,
-        validate=Length(min=1),
+        inner=fields.String(), required=True, validate=Length(min=1)
     )
 
     email_addr = fields.Email(required=True, validate=Length(min=1))
     password = fields.String(required=True, validate=Length(min=1))
 
-    locale = fields.String(
+    locale = TrimmedField(
+        inner=fields.String(),
         validate=OneOf((auth_constants.LANG_EN,)),
         load_default=auth_constants.LANG_EN,
     )
@@ -58,9 +53,13 @@ class ResponseSchema(BaseResponseSchema):
 
 @log_event
 def handler(event, context):
-    user_ip = event["requestContext"]["identity"]["sourceIp"]
-
     try:
+        if AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE).is_blocked(
+            action=auth_constants.ACTION_SIGN_UP,
+            ip_addr=common.get_user_ip(event=event),
+        ):
+            raise CommonException(code=4030)
+
         req = RequestSchema().load_and_dump(event)
         username = req["username"]
         email_addr = req["email_addr"]
@@ -72,11 +71,6 @@ def handler(event, context):
 
         try:
             transact_items: list = [
-                auth_attempt.get_cond_check_transact_item(
-                    action=auth_constants.ACTION_SIGN_UP,
-                    ip_addr=user_ip,
-                    max_attempt=auth_constants.MAX_SIGN_UP_ATTEMPT,
-                ),
                 auth_user.get_put_transact_item(
                     username=username,
                     email_addr=email_addr,
@@ -94,7 +88,7 @@ def handler(event, context):
             ]
 
             db_resp = DYNAMODB.meta.client.transact_write_items(
-                TransactItems=transact_items,
+                TransactItems=transact_items
             )
             LOGGER.debug("db_resp: %s", db_resp)
 
@@ -104,9 +98,6 @@ def handler(event, context):
                     continue
 
                 item = common_db.deserialize_item(item=reason.get("Item", {}))
-
-                if item.get("attempt", 0) >= auth_constants.MAX_SIGN_UP_ATTEMPT:
-                    raise CommonException(code=4030)
 
                 if item.get("pk", "").startswith("Username#"):
                     raise CommonException(code=4090, msg="Username already exists")
@@ -118,10 +109,14 @@ def handler(event, context):
         # TODO: Email content based on the given locale
 
         # Generate a new session token that is authorized to call verify-email API
-        session_token = auth_jwt.gen_token(
+        session_token = auth_jwt.encode(
             key=SESSION_TOKEN_SECRET,
             type=auth_constants.TOKEN_TYPE_SESSION,
-            exp=common.extend_current_timestamp(minutes=3),
+            exp=common.extend_current_timestamp(
+                minutes=auth_constants.JWT_TOKEN_VALIDITY_IN_MINUTES_DICT[
+                    auth_constants.ACTION_VERIFY_ATTR
+                ]
+            ),
             sub=email_addr,
             name=username,
             aud=auth_constants.ACTION_VERIFY_ATTR,
@@ -139,11 +134,11 @@ def handler(event, context):
         )
 
     except CommonException as err:
-        # Only increment if error message is not Forbidden, otherwise user keep trying will never be able to sign up
+        # Only increment if error message is not Forbidden, else user keep trying will never be able to sign up
         if err.code != 4030:
             AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE).incr(
                 action=auth_constants.ACTION_SIGN_UP,
-                ip_addr=user_ip,
+                ip_addr=common.get_user_ip(event=event),
             )
 
         return common.gen_api_resp(code=err.code, msg=err.msg)
