@@ -63,7 +63,8 @@ def handler(event, context):
         InvalidSignatureError,
         DecodeError,
         InvalidTokenError,
-    ):
+    ) as err:
+        LOGGER.exception(err)
         raise Exception("Unauthorized")
 
     except Exception as err:
