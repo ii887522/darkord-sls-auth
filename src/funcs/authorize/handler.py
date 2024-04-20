@@ -98,7 +98,11 @@ def decode(jwt_token: str) -> dict:
 
     # Ensure the given JWT token is valid
     jwt.decode(
-        jwt=jwt_token, key=key, algorithms=["HS512"], options={"require": ["exp"]}
+        jwt=jwt_token,
+        key=key,
+        algorithms=["HS512"],
+        options={"require": ["exp"]},
+        audience=auth_constants.AUDIENCE_ACTIONS,
     )
 
     return claims

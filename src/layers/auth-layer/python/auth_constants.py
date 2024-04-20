@@ -21,6 +21,7 @@ SESSION_TOKEN_PARAM_NAME = "/auth/api/token/session"
 ACTION_SIGN_UP = "sign_up"
 ACTION_VERIFY_ATTR = "verify_attr"
 ACTION_INIT_MFA = "init_mfa"
+AUDIENCE_ACTIONS = (ACTION_VERIFY_ATTR, ACTION_INIT_MFA)
 
 # Max action attempts
 MAX_ACTION_ATTEMPT_DICT = {
