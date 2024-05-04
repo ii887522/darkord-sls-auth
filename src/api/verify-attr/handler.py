@@ -26,7 +26,7 @@ AUTH_USER_TABLE = DYNAMODB.Table(auth_constants.AUTH_USER_TABLE_NAME)
 SSM = boto3.client("ssm", constants.REGION, config=Config(tcp_keepalive=True))
 
 SESSION_TOKEN_SECRET = SSM.get_parameter(
-    Name=auth_constants.SESSION_TOKEN_PARAM_NAME, WithDecryption=True
+    Name=auth_constants.SESSION_TOKEN_PARAM_PATH, WithDecryption=True
 )["Parameter"].get("Value", "")
 
 

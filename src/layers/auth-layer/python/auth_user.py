@@ -5,6 +5,7 @@ import auth_constants
 import common
 from boto3.dynamodb.conditions import Attr
 from common_marshmallow import BaseSchema
+from cryptography.fernet import Fernet
 from marshmallow import ValidationError, fields, post_load, pre_load, validates_schema
 
 LOGGER = logging.getLogger()
@@ -20,6 +21,7 @@ class AuthUserDbSchema(BaseSchema):
     locale = fields.String()
     extra = fields.Dict()
     verified_attrs = fields.List(fields.String())
+    mfa_secret = fields.String()
     verification_code = fields.String()
     code_expired_at = fields.Integer()
 
@@ -68,15 +70,15 @@ class AuthUserDbSchema(BaseSchema):
 
 
 class AuthUserDb:
-    def __init__(self, table):
+    def __init__(self, table, ssm={}):
         self.table = table
+        self.ssm = ssm
 
     def get_verification_code(self, email_addr: str) -> str:
         db_resp = self.table.get_item(
             Key={"pk": f"EmailAddr#{email_addr}", "sk": "User"},
             ProjectionExpression="verification_code,code_expired_at",
         )
-        LOGGER.debug("db_resp: %s", db_resp)
 
         item = db_resp.get("Item", {})
 
@@ -89,13 +91,25 @@ class AuthUserDb:
     def mark_attrs_as_verified(
         self, username: str, attrs: set[Literal["email_addr"]] = set()
     ):
-        db_resp = self.table.update_item(
+        self.table.update_item(
             Key={"pk": f"Username#{username}", "sk": "User"},
             UpdateExpression="ADD verified_attrs :va",
             ConditionExpression=Attr("pk").exists(),
             ExpressionAttributeValues={":va": attrs},
         )
-        LOGGER.debug("db_resp: %s", db_resp)
+
+    def set_mfa_secret(self, mfa_secret: str, username: str):
+        fernet = Fernet(
+            self.ssm.get_parameter(
+                Name=auth_constants.MFA_PARAM_PATH, WithDecryption=True
+            )["Parameter"].get("Value", "")
+        )
+
+        self.table.update_item(
+            Key={"pk": f"Username#{username}", "sk": "User"},
+            UpdateExpression="SET mfa_secret = :ms",
+            ExpressionAttributeValues={":ms": fernet.encrypt(mfa_secret.encode())},
+        )
 
 
 def get_put_transact_item(

@@ -11,11 +11,12 @@ AUTH_USER_TABLE_NAME = f"{constants.STAGE_PREFIX}auth_user"
 AUTH_VALID_TOKEN_PAIR_TABLE_NAME = f"{constants.STAGE_PREFIX}auth_valid_token_pair"
 AUTH_RBAC_TABLE_NAME = f"{constants.STAGE_PREFIX}auth_rbac"
 
-# SSM parameter names
+# SSM parameter paths
 JWT_TOKEN_PARAM_PATH = "/auth/api/token"
-ACCESS_TOKEN_PARAM_NAME = "/auth/api/token/access"
-REFRESH_TOKEN_PARAM_NAME = "/auth/api/token/refresh"
-SESSION_TOKEN_PARAM_NAME = "/auth/api/token/session"
+ACCESS_TOKEN_PARAM_PATH = "/auth/api/token/access"
+REFRESH_TOKEN_PARAM_PATH = "/auth/api/token/refresh"
+SESSION_TOKEN_PARAM_PATH = "/auth/api/token/session"
+MFA_PARAM_PATH = "/auth/api/mfa"
 
 # Actions
 ACTION_SIGN_UP = "sign_up"
@@ -27,6 +28,7 @@ AUDIENCE_ACTIONS = (ACTION_VERIFY_ATTR, ACTION_INIT_MFA)
 MAX_ACTION_ATTEMPT_DICT = {
     ACTION_SIGN_UP: int(os.environ.get("MAX_SIGN_UP_ATTEMPT", 0)),
     ACTION_VERIFY_ATTR: int(os.environ.get("MAX_VERIFY_ATTR_ATTEMPT", 0)),
+    ACTION_INIT_MFA: int(os.environ.get("MAX_INIT_MFA_ATTEMPT", 0)),
 }
 
 # Action JWT token validities

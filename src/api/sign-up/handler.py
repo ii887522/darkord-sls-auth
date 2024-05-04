@@ -25,7 +25,7 @@ AUTH_ATTEMPT_TABLE = DYNAMODB.Table(auth_constants.AUTH_ATTEMPT_TABLE_NAME)
 SSM = boto3.client("ssm", constants.REGION, config=Config(tcp_keepalive=True))
 
 SESSION_TOKEN_SECRET = SSM.get_parameter(
-    Name=auth_constants.SESSION_TOKEN_PARAM_NAME, WithDecryption=True
+    Name=auth_constants.SESSION_TOKEN_PARAM_PATH, WithDecryption=True
 )["Parameter"].get("Value", "")
 
 
@@ -87,10 +87,7 @@ def handler(event, context):
                 ),
             ]
 
-            db_resp = DYNAMODB.meta.client.transact_write_items(
-                TransactItems=transact_items
-            )
-            LOGGER.debug("db_resp: %s", db_resp)
+            DYNAMODB.meta.client.transact_write_items(TransactItems=transact_items)
 
         except DYNAMODB.meta.client.exceptions.TransactionCanceledException as err:
             for reason in err.response["CancellationReasons"]:

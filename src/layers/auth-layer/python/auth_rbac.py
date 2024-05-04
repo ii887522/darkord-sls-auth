@@ -12,6 +12,5 @@ class AuthRbacDb:
             Key={"pk": f"Route#{method}_{path}", "sk": "Rbac"},
             ProjectionExpression="roles",
         )
-        LOGGER.debug("db_resp: %s", db_resp)
 
         return db_resp.get("Item", {})

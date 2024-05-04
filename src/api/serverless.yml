@@ -44,6 +44,7 @@ params:
     stageDashPrefix: stage-
     maxSignUpAttempt: 20
     maxVerifyAttrAttempt: 3
+    maxInitMfaAttempt: 1
     authorizerId: pmob2d
   prod:
     profile: darkord
@@ -60,6 +61,7 @@ params:
     stageDashPrefix: ""
     maxSignUpAttempt: 20
     maxVerifyAttrAttempt: 3
+    maxInitMfaAttempt: 1
     authorizerId: "" # TODO: Deploy authorizer to production and note the ID
 
 custom:
@@ -144,6 +146,42 @@ functions:
             authorizerId: ${param:authorizerId}
     environment:
       MAX_VERIFY_ATTR_ATTEMPT: ${param:maxVerifyAttrAttempt}
+  init-mfa:
+    handler: init-mfa/handler.handler
+    package:
+      patterns:
+        - "init-mfa/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - ssm:GetParameter
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_attempt
+      - Effect: Allow
+        Action:
+          - dynamodb:UpdateItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
+    layers:
+      - ${param:commonLayerArn}
+      - ${param:moduleLayerArn}
+    events:
+      - http:
+          method: POST
+          path: /auth/init_mfa
+          private: true
+          authorizer:
+            type: TOKEN
+            authorizerId: ${param:authorizerId}
+    environment:
+      MAX_INIT_MFA_ATTEMPT: ${param:maxInitMfaAttempt}
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work

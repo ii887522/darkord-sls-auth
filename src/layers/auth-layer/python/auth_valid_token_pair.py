@@ -12,6 +12,5 @@ class AuthValidTokenPairDb:
             Key={"pk": f"RefreshToken#{refresh_token_jti}"},
             ProjectionExpression="access_token_jti,expired_at",
         )
-        LOGGER.debug("db_resp: %s", db_resp)
 
         return db_resp.get("Item", {})

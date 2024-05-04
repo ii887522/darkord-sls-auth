@@ -49,7 +49,6 @@ class AuthAttemptDb:
             Key={"pk": f"{action}#{ip_addr or jti}", "sk": "Attempt"},
             ProjectionExpression="attempt,expired_at",
         )
-        LOGGER.debug("db_resp: %s", db_resp)
 
         return db_resp.get("Item", {})
 
@@ -67,7 +66,7 @@ class AuthAttemptDb:
         expired_at = common.extend_current_timestamp(hours=1)
 
         try:
-            db_resp = self.table.update_item(
+            self.table.update_item(
                 Key={
                     "pk": f"{common.convert_snake_case_to_pascal_case(src=action)}#{ip_addr or jti}",
                     "sk": "Attempt",
@@ -76,7 +75,6 @@ class AuthAttemptDb:
                 ConditionExpression=Attr("pk").exists(),
                 ExpressionAttributeValues={":incr": attempt, ":ea": expired_at},
             )
-            LOGGER.debug("db_resp: %s", db_resp)
 
         except self.dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
             attempt_item = {
@@ -91,11 +89,10 @@ class AuthAttemptDb:
             if jti:
                 attempt_item["jti"] = jti
 
-            db_resp = self.table.put_item(
+            self.table.put_item(
                 Item=AuthAttemptDbSchema().load_and_dump(attempt_item),
                 ConditionExpression=Attr("pk").not_exists(),
             )
-            LOGGER.debug("db_resp: %s", db_resp)
 
     def block(self, action: str, ip_addr="", jti="", is_permanent=False):
         expired_at = common.extend_current_timestamp(
@@ -105,7 +102,7 @@ class AuthAttemptDb:
         )
 
         try:
-            db_resp = self.table.update_item(
+            self.table.update_item(
                 Key={
                     "pk": f"{common.convert_snake_case_to_pascal_case(src=action)}#{ip_addr or jti}",
                     "sk": "Attempt",
@@ -117,7 +114,6 @@ class AuthAttemptDb:
                     ":ea": None if is_permanent else expired_at,
                 },
             )
-            LOGGER.debug("db_resp: %s", db_resp)
 
         except self.dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
             attempt_item = {
@@ -132,8 +128,7 @@ class AuthAttemptDb:
             if jti:
                 attempt_item["jti"] = jti
 
-            db_resp = self.table.put_item(
+            self.table.put_item(
                 Item=AuthAttemptDbSchema().load_and_dump(attempt_item),
                 ConditionExpression=Attr("pk").not_exists(),
             )
-            LOGGER.debug("db_resp: %s", db_resp)
