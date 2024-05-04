@@ -40,7 +40,6 @@ layers:
     compatibleRuntimes:
       - python3.11
     compatibleArchitectures:
-      - x86_64
       - arm64
     allowedAccounts:
       - ${aws:accountId}
