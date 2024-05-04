@@ -33,10 +33,13 @@ params:
     logRetentionInDays: 7
     disableRollback: true
     logLevel: INFO
-    commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
-    moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
     stagePrefix: stage_
     stageDashPrefix: stage-
+
+    # Layer ARNs
+    commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
+    moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
+
   prod:
     profile: darkord
     region: ap-southeast-1
@@ -44,10 +47,12 @@ params:
     logRetentionInDays: 7
     disableRollback: false
     logLevel: INFO
-    commonLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:common-layer:latest
-    moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
     stagePrefix: ""
     stageDashPrefix: ""
+
+    # Layer ARNs
+    commonLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:common-layer:latest
+    moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
 
 custom:
   prune:

@@ -108,8 +108,26 @@ class AuthUserDb:
         self.table.update_item(
             Key={"pk": f"Username#{username}", "sk": "User"},
             UpdateExpression="SET mfa_secret = :ms",
-            ExpressionAttributeValues={":ms": fernet.encrypt(mfa_secret.encode())},
+            ExpressionAttributeValues={":ms": str(fernet.encrypt(mfa_secret.encode()))},
         )
+
+    def get(self, email_addr: str) -> dict:
+        db_resp = self.table.get_item(
+            Key={"pk": f"EmailAddr#{email_addr}", "sk": "User"},
+            ProjectionExpression="username",
+        )
+
+        username = db_resp.get("Item", {}).get("username", "")
+
+        if not username:
+            return {}
+
+        db_resp = self.table.get_item(
+            Key={"pk": f"Username#{username}", "sk": "User"},
+            ProjectionExpression="username,password,salt,verified_attrs",
+        )
+
+        return db_resp["Item"]
 
 
 def get_put_transact_item(

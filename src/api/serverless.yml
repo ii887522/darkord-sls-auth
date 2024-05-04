@@ -38,14 +38,20 @@ params:
     restApiId: ns1o12mqe1
     restApiRootResourceId: webfruxv5f
     logLevel: INFO
-    commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
-    moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
     stagePrefix: stage_
     stageDashPrefix: stage-
+    authorizerId: pmob2d
+
+    # Layer ARNs
+    commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
+    moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
+
+    # Max action attempts
     maxSignUpAttempt: 20
     maxVerifyAttrAttempt: 3
     maxInitMfaAttempt: 1
-    authorizerId: pmob2d
+    maxLoginAttempt: 20
+
   prod:
     profile: darkord
     region: ap-southeast-1
@@ -55,14 +61,19 @@ params:
     restApiId: udz4iyqum3
     restApiRootResourceId: sonnsq55fh
     logLevel: INFO
-    commonLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:common-layer:latest
-    moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
     stagePrefix: ""
     stageDashPrefix: ""
+    authorizerId: "" # TODO: Deploy authorizer to production and note the ID
+
+    # Layer ARNs
+    commonLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:common-layer:latest
+    moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
+
+    # Max action attempts
     maxSignUpAttempt: 20
     maxVerifyAttrAttempt: 3
     maxInitMfaAttempt: 1
-    authorizerId: "" # TODO: Deploy authorizer to production and note the ID
+    maxLoginAttempt: 20
 
 custom:
   prune:
@@ -182,6 +193,39 @@ functions:
             authorizerId: ${param:authorizerId}
     environment:
       MAX_INIT_MFA_ATTEMPT: ${param:maxInitMfaAttempt}
+  login:
+    handler: login/handler.handler
+    package:
+      patterns:
+        - "login/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - ssm:GetParameter
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_attempt
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
+    layers:
+      - ${param:commonLayerArn}
+      - ${param:moduleLayerArn}
+    events:
+      - http:
+          method: POST
+          path: /auth/login
+          private: true
+    environment:
+      MAX_LOGIN_ATTEMPT: ${param:maxLoginAttempt}
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work

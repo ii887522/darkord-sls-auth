@@ -68,8 +68,7 @@ def handler(event, context):
         )
 
     except CommonException as err:
-        # Only increment if error message is not Forbidden, else user keep trying will never be able to verify their
-        # attribute
+        # Only increment if error message is not Forbidden, else user keep trying will never be able to setup MFA
         if err.code != 4030:
             AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE).incr(
                 action=auth_constants.ACTION_INIT_MFA, jti=jti
