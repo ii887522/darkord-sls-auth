@@ -51,12 +51,12 @@ def handler(event, context):
         email_addr = user_ctx["sub"]
         username = user_ctx["name"]
         next_action = user_ctx["dest"]
-        req = RequestSchema().load_and_dump(event)
         attempt_db = AuthAttemptDb(dynamodb=DYNAMODB, table=AUTH_ATTEMPT_TABLE)
 
         if attempt_db.is_blocked(action=auth_constants.ACTION_VERIFY_ATTR, jti=jti):
             raise CommonException(code=4030)
 
+        req = RequestSchema().load_and_dump(event)
         user_db = AuthUserDb(table=AUTH_USER_TABLE)
         verification_code = user_db.get_verification_code(email_addr=email_addr)
 

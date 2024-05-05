@@ -32,6 +32,7 @@ MAX_ACTION_ATTEMPT_DICT = {
     ACTION_VERIFY_ATTR: int(os.environ.get("MAX_VERIFY_ATTR_ATTEMPT", 0)),
     ACTION_INIT_MFA: int(os.environ.get("MAX_INIT_MFA_ATTEMPT", 0)),
     ACTION_LOGIN: int(os.environ.get("MAX_LOGIN_ATTEMPT", 0)),
+    ACTION_VERIFY_MFA_CODE: int(os.environ.get("MAX_VERIFY_MFA_CODE_ATTEMPT", 0)),
 }
 
 # Action JWT token validities
@@ -45,3 +46,6 @@ JWT_TOKEN_VALIDITY_IN_MINUTES_DICT = {
 TOKEN_TYPE_ACCESS = "access"
 TOKEN_TYPE_REFRESH = "refresh"
 TOKEN_TYPE_SESSION = "session"
+
+# Roles
+ROLE_USER = "user"

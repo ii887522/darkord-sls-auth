@@ -1,8 +1,3 @@
-import logging
-
-LOGGER = logging.getLogger()
-
-
 class AuthRbacDb:
     def __init__(self, table):
         self.table = table

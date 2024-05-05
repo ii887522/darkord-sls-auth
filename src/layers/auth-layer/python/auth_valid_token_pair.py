@@ -1,6 +1,19 @@
-import logging
+from boto3.dynamodb.conditions import Attr
+from common_marshmallow import BaseSchema
+from marshmallow import fields, pre_load
 
-LOGGER = logging.getLogger()
+
+class AuthValidTokenPairDbSchema(BaseSchema):
+    pk = fields.String(required=True)
+    sk = fields.Constant("ValidTokenPair")
+    refresh_token_jti = fields.String(required=True)
+    access_token_jti = fields.String(required=True)
+    expired_at = fields.Integer(required=True)
+
+    @pre_load
+    def gen(self, data, **kwargs):
+        data["pk"] = f"RefreshToken#{data['refresh_token_jti']}"
+        return data
 
 
 class AuthValidTokenPairDb:
@@ -14,3 +27,15 @@ class AuthValidTokenPairDb:
         )
 
         return db_resp.get("Item", {})
+
+    def put(self, refresh_token_jti: str, access_token_jti: str, expired_at: int):
+        self.table.put_item(
+            Item=AuthValidTokenPairDbSchema().load_and_dump(
+                {
+                    "refresh_token_jti": refresh_token_jti,
+                    "access_token_jti": access_token_jti,
+                    "expired_at": expired_at,
+                }
+            ),
+            ConditionExpression=Attr("pk").not_exists(),
+        )

@@ -1,4 +1,3 @@
-import logging
 from typing import Literal
 
 import auth_constants
@@ -7,8 +6,6 @@ from boto3.dynamodb.conditions import Attr
 from common_marshmallow import BaseSchema
 from cryptography.fernet import Fernet
 from marshmallow import ValidationError, fields, post_load, pre_load, validates_schema
-
-LOGGER = logging.getLogger()
 
 
 class AuthUserDbSchema(BaseSchema):
@@ -110,6 +107,25 @@ class AuthUserDb:
             UpdateExpression="SET mfa_secret = :ms",
             ExpressionAttributeValues={":ms": str(fernet.encrypt(mfa_secret.encode()))},
         )
+
+    def get_mfa_secret(self, username: str) -> str:
+        db_resp = self.table.get_item(
+            Key={"pk": f"Username#{username}", "sk": "User"},
+            ProjectionExpression="mfa_secret",
+        )
+
+        mfa_secret = db_resp["Item"].get("mfa_secret", "")
+
+        if not mfa_secret:
+            return ""
+
+        fernet = Fernet(
+            self.ssm.get_parameter(
+                Name=auth_constants.MFA_PARAM_PATH, WithDecryption=True
+            )["Parameter"].get("Value", "")
+        )
+
+        return str(fernet.decrypt(mfa_secret))
 
     def get(self, email_addr: str) -> dict:
         db_resp = self.table.get_item(

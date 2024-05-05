@@ -1,13 +1,9 @@
-import logging
-
 import auth_constants
 import common
 import constants
 from boto3.dynamodb.conditions import Attr
 from common_marshmallow import BaseSchema
 from marshmallow import ValidationError, fields, pre_load, validates_schema
-
-LOGGER = logging.getLogger()
 
 
 class AuthAttemptDbSchema(BaseSchema):
