@@ -50,7 +50,7 @@ def handler(event, context):
         req = RequestSchema().load_and_dump(event)
         email_addr = req["email_addr"]
 
-        user = AuthUserDb(table=AUTH_ATTEMPT_TABLE).get(email_addr=email_addr)
+        user = AuthUserDb(table=AUTH_USER_TABLE).get(email_addr=email_addr)
 
         if not user or "email_addr" not in user.get("verified_attrs", set()):
             raise CommonException(code=4010)
