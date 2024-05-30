@@ -4,9 +4,9 @@ frameworkVersion: "3"
 provider:
   name: aws
   deploymentMethod: direct
-  runtime: python3.11
   profile: ${param:profile}
   region: ${param:region}
+  runtime: provided.al2023
   memorySize: ${param:memorySize}
   architecture: arm64
   logRetentionInDays: ${param:logRetentionInDays}
@@ -19,7 +19,7 @@ provider:
     restApiId: ${param:restApiId}
     restApiRootResourceId: ${param:restApiRootResourceId}
   environment:
-    LOG_LEVEL: ${param:logLevel}
+    RUST_LOG: ${param:logLevel}
     REGION: ${param:region}
     STAGE: ${sls:stage}
     STAGE_PREFIX: ${param:stagePrefix}
@@ -32,7 +32,7 @@ params:
   stage:
     profile: darkord-stage
     region: us-east-1
-    memorySize: 192
+    memorySize: 128
     logRetentionInDays: 7
     disableRollback: true
     restApiId: ns1o12mqe1
@@ -42,21 +42,17 @@ params:
     stageDashPrefix: stage-
     authorizerId: pmob2d
 
-    # Layer ARNs
-    commonLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:common-layer:latest
-    moduleLayerArn: arn:aws:lambda:us-east-1:${aws:accountId}:layer:auth-layer:latest
-
     # Max action attempts
     maxSignUpAttempt: 20
     maxVerifyAttrAttempt: 3
     maxInitMfaAttempt: 1
     maxLoginAttempt: 20
-    maxVerifyMfaCodeAttempt: 3
+    maxVerifyMfaAttempt: 3
 
   prod:
     profile: darkord
     region: ap-southeast-1
-    memorySize: 384
+    memorySize: 256
     logRetentionInDays: 7
     disableRollback: false
     restApiId: udz4iyqum3
@@ -64,24 +60,23 @@ params:
     logLevel: INFO
     stagePrefix: ""
     stageDashPrefix: ""
-    authorizerId: "" # TODO: Deploy authorizer to production and note the ID
-
-    # Layer ARNs
-    commonLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:common-layer:latest
-    moduleLayerArn: arn:aws:lambda:ap-southeast-1:${aws:accountId}:layer:auth-layer:latest
+    authorizerId: "" # todo: Deploy authorizer to production and note the ID
 
     # Max action attempts
     maxSignUpAttempt: 20
     maxVerifyAttrAttempt: 3
     maxInitMfaAttempt: 1
     maxLoginAttempt: 20
-    maxVerifyMfaCodeAttempt: 3
+    maxVerifyMfaAttempt: 3
 
 custom:
   prune:
     automatic: true
     includeLayers: true
     number: 5
+  rust:
+    cargoLambda:
+      docker: false
 
 package:
   individually: true
@@ -90,7 +85,8 @@ package:
 
 functions:
   sign-up:
-    handler: sign-up/handler.handler
+    handler: sign-up
+    memorySize: 256
     package:
       patterns:
         - "sign-up/**"
@@ -112,9 +108,6 @@ functions:
           - dynamodb:PutItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
-    layers:
-      - ${param:commonLayerArn}
-      - ${param:moduleLayerArn}
     events:
       - http:
           method: POST
@@ -123,7 +116,7 @@ functions:
     environment:
       MAX_SIGN_UP_ATTEMPT: ${param:maxSignUpAttempt}
   verify-attr:
-    handler: verify-attr/handler.handler
+    handler: verify-attr
     package:
       patterns:
         - "verify-attr/**"
@@ -146,9 +139,6 @@ functions:
           - dynamodb:UpdateItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
-    layers:
-      - ${param:commonLayerArn}
-      - ${param:moduleLayerArn}
     events:
       - http:
           method: POST
@@ -160,7 +150,7 @@ functions:
     environment:
       MAX_VERIFY_ATTR_ATTEMPT: ${param:maxVerifyAttrAttempt}
   init-mfa:
-    handler: init-mfa/handler.handler
+    handler: init-mfa
     package:
       patterns:
         - "init-mfa/**"
@@ -182,9 +172,6 @@ functions:
           - dynamodb:UpdateItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
-    layers:
-      - ${param:commonLayerArn}
-      - ${param:moduleLayerArn}
     events:
       - http:
           method: POST
@@ -196,7 +183,8 @@ functions:
     environment:
       MAX_INIT_MFA_ATTEMPT: ${param:maxInitMfaAttempt}
   login:
-    handler: login/handler.handler
+    handler: login
+    memorySize: 256
     package:
       patterns:
         - "login/**"
@@ -218,9 +206,6 @@ functions:
           - dynamodb:GetItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
-    layers:
-      - ${param:commonLayerArn}
-      - ${param:moduleLayerArn}
     events:
       - http:
           method: POST
@@ -228,11 +213,54 @@ functions:
           private: true
     environment:
       MAX_LOGIN_ATTEMPT: ${param:maxLoginAttempt}
-  verify-mfa-code:
-    handler: verify-mfa-code/handler.handler
+  verify-mfa:
+    handler: verify-mfa
     package:
       patterns:
-        - "verify-mfa-code/**"
+        - "verify-mfa/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - ssm:GetParametersByPath
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token
+      - Effect: Allow
+        Action:
+          - ssm:GetParameter
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_attempt
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_valid_token_pair
+    events:
+      - http:
+          method: POST
+          path: /auth/verify_mfa
+          private: true
+          authorizer:
+            type: TOKEN
+            authorizerId: ${param:authorizerId}
+    environment:
+      MAX_VERIFY_MFA_ATTEMPT: ${param:maxVerifyMfaAttempt}
+  refresh:
+    handler: refresh
+    package:
+      patterns:
+        - "refresh/**"
     iamRoleStatements:
       - Effect: Allow
         Action:
@@ -251,20 +279,18 @@ functions:
           - dynamodb:GetItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
-    layers:
-      - ${param:commonLayerArn}
-      - ${param:moduleLayerArn}
     events:
       - http:
           method: POST
-          path: /auth/verify_mfa_code
+          path: /auth/refresh
           private: true
-    environment:
-      MAX_VERIFY_MFA_CODE_ATTEMPT: ${param:maxVerifyMfaCodeAttempt}
+          authorizer:
+            type: TOKEN
+            authorizerId: ${param:authorizerId}
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work
+  - serverless-rust-plugin
   - serverless-prune-plugin
   - serverless-iam-roles-per-function
   - serverless-deployment-bucket
-  - serverless-latest-layer-version

@@ -1,4 +1,3 @@
-__pycache__
 .serverless
+/target
 node_modules
-lib
