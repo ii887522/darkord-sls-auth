@@ -68,3 +68,15 @@ pub static JWT_TOKEN_VALIDITY_IN_MINUTES_MAP: Lazy<HashMap<Action, u64>> = Lazy:
         (Action::VerifyMfa, 3),
     ])
 });
+
+// JWT token types
+pub const TOKEN_TYPE_ACCESS: &str = "access";
+pub const TOKEN_TYPE_REFRESH: &str = "refresh";
+pub const TOKEN_TYPE_SESSION: &str = "session";
+
+pub const AUDIENCE_ACTIONS: &[Action] = &[
+    Action::VerifyAttr,
+    Action::InitMfa,
+    Action::VerifyMfa,
+    Action::Refresh,
+];

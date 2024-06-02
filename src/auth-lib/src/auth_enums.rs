@@ -1,3 +1,4 @@
+use crate::auth_jwt::{AuthAccessToken, AuthRefreshToken, AuthSessionToken};
 use common::StringExt;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display, Formatter};
@@ -40,8 +41,15 @@ pub enum UserAttr {
     EmailAddr,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     User,
+}
+
+#[derive(Debug, PartialEq, Deserialize)]
+pub enum JwtToken {
+    Access(AuthAccessToken),
+    Refresh(AuthRefreshToken),
+    Session(AuthSessionToken),
 }

@@ -12,7 +12,6 @@
     "yzhang.markdown-all-in-one",
     "christian-kohler.path-intellisense",
     "esbenp.prettier-vscode",
-    "rust-lang.rust-analyzer",
-    "usernamehw.errorlens"
+    "rust-lang.rust-analyzer"
   ]
 }

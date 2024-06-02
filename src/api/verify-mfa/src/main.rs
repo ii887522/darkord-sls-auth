@@ -3,8 +3,7 @@ use auth_lib::{
     auth_constants,
     auth_enums::{Action, Role},
     auth_jwt::{AccessTokenType, AuthAccessToken, AuthRefreshToken, RefreshTokenType},
-    auth_user_context::AuthUserContext,
-    AuthAttemptDb, AuthUserDb, AuthValidTokenPairDb,
+    AuthAttemptDb, AuthUserContext, AuthUserDb, AuthValidTokenPairDb,
 };
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
@@ -44,7 +43,7 @@ struct HandlerResponse {
     access_token: String,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -152,7 +151,7 @@ async fn handler(
         dynamodb: &env.dynamodb,
         ssm: Some(&env.ssm),
     }
-    .get_mfa_secret(&user_ctx.name)
+    .get_mfa_secret(&user_ctx.sub)
     .await
     .context(Location::caller())?;
 
@@ -202,14 +201,16 @@ async fn handler(
         }
     }
 
+    let valid_token_pair_db = AuthValidTokenPairDb {
+        dynamodb: &env.dynamodb,
+    };
+
     // Revoke this session token
-    attempt_db
+    let revoke_task = attempt_db
         .incr(Action::VerifyMfa)
         .jti(&*user_ctx.jti)
         .attempt(auth_constants::MAX_ACTION_ATTEMPT_MAP[&Action::VerifyMfa])
-        .send()
-        .await
-        .context(Location::caller())?;
+        .send();
 
     let refresh_token_jti = Uuid::new_v4().to_string();
 
@@ -217,6 +218,19 @@ async fn handler(
         .days(1u64)
         .call()
         .context(Location::caller())?;
+
+    let access_token_jti = Uuid::new_v4().to_string();
+
+    let put_task = valid_token_pair_db.put_item(
+        refresh_token_jti.to_string(),
+        access_token_jti.to_string(),
+        refresh_token_exp,
+    );
+
+    // Kickstart the DB related tasks
+    let (revoke_task_resp, put_task_resp) = tokio::join!(revoke_task, put_task);
+    revoke_task_resp.context(Location::caller())?;
+    put_task_resp.context(Location::caller())?;
 
     let refresh_token = jsonwebtoken::encode(
         &Header::new(Algorithm::HS512),
@@ -230,13 +244,11 @@ async fn handler(
     )
     .context(Location::caller())?;
 
-    let access_token_jti = Uuid::new_v4().to_string();
-
     let access_token = jsonwebtoken::encode(
         &Header::new(Algorithm::HS512),
         &AuthAccessToken {
             typ: AccessTokenType::Access,
-            jti: access_token_jti.to_string(),
+            jti: access_token_jti,
             exp: common::extend_current_timestamp()
                 .minutes(5u64)
                 .call()
@@ -244,17 +256,10 @@ async fn handler(
             sub: user_ctx.sub,
             name: user_ctx.name,
             roles: vec![Role::User],
-            orig: refresh_token_jti.to_string(),
+            orig: refresh_token_jti,
         },
         &EncodingKey::from_secret(env.access_token_secret.as_ref()),
     )
-    .context(Location::caller())?;
-
-    AuthValidTokenPairDb {
-        dynamodb: &env.dynamodb,
-    }
-    .put_item(refresh_token_jti, access_token_jti, refresh_token_exp)
-    .await
     .context(Location::caller())?;
 
     let resp = HandlerResponse {

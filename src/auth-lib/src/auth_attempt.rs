@@ -41,7 +41,7 @@ pub struct AuthAttempt {
 #[optarg_impl]
 impl AuthAttempt {
     #[optarg_method(AuthAttemptNewBuilder, call)]
-    pub fn new(
+    fn new(
         action: Action,
         #[optarg_default] ip_addr: String,
         #[optarg_default] jti: String,

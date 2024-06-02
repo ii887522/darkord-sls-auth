@@ -1,8 +1,5 @@
 use anyhow::{Context as _, Result};
-use auth_lib::{
-    auth_constants, auth_enums::Action, auth_user_context::AuthUserContext, AuthAttemptDb,
-    AuthUserDb,
-};
+use auth_lib::{auth_constants, auth_enums::Action, AuthAttemptDb, AuthUserContext, AuthUserDb};
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
 use common::{
@@ -26,7 +23,7 @@ struct HandlerResponse {
     mfa_provisioning_uri: String,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -98,26 +95,28 @@ async fn handler(
         return Ok(api_resp.into());
     }
 
+    let user_db = AuthUserDb {
+        dynamodb: &env.dynamodb,
+        ssm: Some(&env.ssm),
+    };
+
     // Revoke this session token
-    attempt_db
+    let revoke_task = attempt_db
         .incr(Action::InitMfa)
         .jti(&*user_ctx.jti)
         .attempt(auth_constants::MAX_ACTION_ATTEMPT_MAP[&Action::InitMfa])
-        .send()
-        .await
-        .context(Location::caller())?;
+        .send();
 
     // Generate an MFA secret for this user
     let mfa_secret = Secret::default().to_encoded().to_string();
 
     // Encrypt and save the MFA secret into this user record
-    AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    }
-    .set_mfa_secret(&mfa_secret, &user_ctx.name)
-    .await
-    .context(Location::caller())?;
+    let save_task = user_db.set_mfa_secret(&mfa_secret, &user_ctx.sub);
+
+    // Kickstart the DB related tasks
+    let (revoke_task_resp, save_task_resp) = tokio::join!(revoke_task, save_task);
+    revoke_task_resp.context(Location::caller())?;
+    save_task_resp.context(Location::caller())?;
 
     // Generate an MFA provisioning URI for the user to register the MFA into their device
     let mfa_provisioning_uri = format!(

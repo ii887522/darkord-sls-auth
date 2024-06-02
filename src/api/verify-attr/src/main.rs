@@ -3,8 +3,7 @@ use auth_lib::{
     auth_constants,
     auth_enums::{Action, UserAttr},
     auth_jwt::{AuthSessionToken, SessionTokenType},
-    auth_user_context::AuthUserContext,
-    AuthAttemptDb, AuthUserDb,
+    AuthAttemptDb, AuthUserContext, AuthUserDb,
 };
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
@@ -44,7 +43,7 @@ struct HandlerResponse {
     session_token: String,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -174,19 +173,21 @@ async fn handler(
         return Ok(api_resp.into());
     }
 
-    user_db
-        .mark_attrs_as_verified(&user_ctx.name, HashSet::from_iter([UserAttr::EmailAddr]))
-        .await
-        .context(Location::caller())?;
-
     // Revoke this session token
-    attempt_db
+    let revoke_task = attempt_db
         .incr(Action::VerifyAttr)
         .jti(&*user_ctx.jti)
         .attempt(auth_constants::MAX_ACTION_ATTEMPT_MAP[&Action::VerifyAttr])
-        .send()
-        .await
-        .context(Location::caller())?;
+        .send();
+
+    // Mark email address as verified by this user
+    let mark_task =
+        user_db.mark_attrs_as_verified(&user_ctx.sub, HashSet::from_iter([UserAttr::EmailAddr]));
+
+    // Kickstart the DB related tasks
+    let (revoke_task_resp, mark_task_resp) = tokio::join!(revoke_task, mark_task);
+    revoke_task_resp.context(Location::caller())?;
+    mark_task_resp.context(Location::caller())?;
 
     let next_action = user_ctx.dest.unwrap();
 

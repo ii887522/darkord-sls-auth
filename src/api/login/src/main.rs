@@ -42,7 +42,7 @@ struct HandlerResponse {
     session_token: String,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 

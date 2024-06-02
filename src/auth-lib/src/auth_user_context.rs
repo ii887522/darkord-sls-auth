@@ -1,7 +1,7 @@
 use crate::auth_enums::Action;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct AuthUserContext {
     pub jti: String,
 

@@ -8,6 +8,7 @@
   "rust-analyzer.checkOnSave": true,
   "rust-analyzer.linkedProjects": [
     "src/api/Cargo.toml",
-    "src/auth-lib/Cargo.toml"
+    "src/auth-lib/Cargo.toml",
+    "src/funcs/Cargo.toml"
   ]
 }
