@@ -32,7 +32,7 @@ pub struct AuthValidTokenPair {
 impl AuthValidTokenPair {
     fn new(refresh_token_jti: String, access_token_jti: String, expired_at: u64) -> Self {
         Self {
-            pk: "RefreshToken#".to_string() + &refresh_token_jti,
+            pk: format!("RefreshToken#{refresh_token_jti}"),
             sk: Sk::ValidTokenPair,
             refresh_token_jti,
             access_token_jti,
@@ -81,7 +81,7 @@ impl<'a> AuthValidTokenPairDb<'a> {
             .table_name(&*auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME)
             .key(
                 "pk",
-                AttributeValue::S("RefreshToken#".to_string() + refresh_token_jti),
+                AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
             )
             .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
             .update_expression("SET access_token_jti = :atj")
@@ -119,7 +119,7 @@ impl<'a> AuthValidTokenPairDb<'a> {
             .table_name(&*auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME)
             .key(
                 "pk",
-                AttributeValue::S("RefreshToken#".to_string() + refresh_token_jti),
+                AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
             )
             .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
             .projection_expression("pk,refresh_token_jti,access_token_jti,expired_at")

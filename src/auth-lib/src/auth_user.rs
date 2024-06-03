@@ -30,6 +30,13 @@ pub struct AuthUser {
     #[serde(default)]
     sk: Sk,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<u32>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_user_id: Option<u32>,
+
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub username: String,
 
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -61,7 +68,9 @@ pub struct AuthUser {
 impl AuthUser {
     #[optarg_method(AuthUserNewBuilder, call)]
     fn new(
-        username: String,
+        #[optarg_default] user_id: Option<u32>,
+        #[optarg_default] next_user_id: Option<u32>,
+        #[optarg_default] username: String,
         #[optarg_default] email_addr: String,
         #[optarg_default] password: String,
         #[optarg_default] locale: Option<Locale>,
@@ -70,12 +79,20 @@ impl AuthUser {
         #[optarg_default] code_expired_at: Option<u64>,
     ) -> Self {
         Self {
-            pk: if email_addr.is_empty() {
+            pk: if locale.is_some() {
+                format!("UserId#{user_id}", user_id = user_id.unwrap())
+            } else if !username.is_empty() {
                 format!("Username#{username}")
-            } else {
+            } else if !email_addr.is_empty() {
                 format!("EmailAddr#{email_addr}")
+            } else if next_user_id.is_some() {
+                "NextUserId".to_string()
+            } else {
+                panic!("Unable to build pk")
             },
             sk: Sk::User,
+            user_id,
+            next_user_id,
             username,
             email_addr,
             password,
@@ -106,7 +123,8 @@ impl<'a> AuthUserDb<'a> {
         verification_code: String,
         code_expired_at: u64,
     ) -> Result<()> {
-        let pk_email_addr_user = AuthUser::new(username.to_string())
+        let pk_email_addr_user = AuthUser::new()
+            .username(username.to_string())
             .email_addr(email_addr)
             .password(password)
             .locale(locale)
@@ -115,7 +133,7 @@ impl<'a> AuthUserDb<'a> {
             .code_expired_at(code_expired_at)
             .call();
 
-        let pk_username_user = AuthUser::new(username).call();
+        let pk_username_user = AuthUser::new().username(username).call();
 
         let db_resp = self
             .dynamodb
@@ -209,10 +227,7 @@ impl<'a> AuthUserDb<'a> {
             .dynamodb
             .get_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S("EmailAddr#".to_string() + email_addr),
-            )
+            .key("pk", AttributeValue::S(format!("EmailAddr#{email_addr}")))
             .key("sk", AttributeValue::S("User".to_string()))
             .projection_expression("pk,username,verification_code,code_expired_at")
             .send()
@@ -242,10 +257,7 @@ impl<'a> AuthUserDb<'a> {
         self.dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S("EmailAddr#".to_string() + email_addr),
-            )
+            .key("pk", AttributeValue::S(format!("EmailAddr#{email_addr}")))
             .key("sk", AttributeValue::S("User".to_string()))
             .update_expression("ADD verified_attrs :va")
             .condition_expression("attribute_exists(pk)")
@@ -288,10 +300,7 @@ impl<'a> AuthUserDb<'a> {
         self.dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S("EmailAddr#".to_string() + email_addr),
-            )
+            .key("pk", AttributeValue::S(format!("EmailAddr#{email_addr}")))
             .key("sk", AttributeValue::S("User".to_string()))
             .update_expression("SET mfa_secret = :ms")
             .condition_expression("attribute_exists(pk)")
@@ -311,10 +320,7 @@ impl<'a> AuthUserDb<'a> {
             .dynamodb
             .get_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S("EmailAddr#".to_string() + email_addr),
-            )
+            .key("pk", AttributeValue::S(format!("EmailAddr#{email_addr}")))
             .key("sk", AttributeValue::S("User".to_string()))
             .projection_expression("pk,username,email_addr,password,verified_attrs")
             .send()
@@ -334,10 +340,7 @@ impl<'a> AuthUserDb<'a> {
             .dynamodb
             .get_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S("EmailAddr#".to_string() + email_addr),
-            )
+            .key("pk", AttributeValue::S(format!("EmailAddr#{email_addr}")))
             .key("sk", AttributeValue::S("User".to_string()))
             .projection_expression("pk,username,mfa_secret")
             .send()

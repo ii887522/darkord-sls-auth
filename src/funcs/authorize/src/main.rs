@@ -205,7 +205,7 @@ fn decode(jwt_token: &str, env: &Env) -> Result<JwtToken> {
 
                     JwtToken::Session(jwt_token.claims)
                 }
-                _ => panic!("Unknown JWT token type"),
+                typ => panic!("Unknown JWT token type: {typ}"),
             }
         }
         _ => panic!("typ not found"),
@@ -334,7 +334,7 @@ async fn auth_session_token(
 ) -> ApiGatewayCustomAuthorizerResponse<AuthUserContext> {
     let policy_effect = if MethodArn::from(method_arn_str)
         .path
-        .ends_with(&("/".to_string() + &session_token.aud.to_string()))
+        .ends_with(&format!("/{aud}", aud = session_token.aud))
     {
         IamPolicyEffect::Allow
     } else {

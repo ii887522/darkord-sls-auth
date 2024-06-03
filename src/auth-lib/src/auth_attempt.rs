@@ -51,10 +51,12 @@ impl AuthAttempt {
         let pk_action = action.to_string().convert_snake_case_to_pascal_case();
 
         Self {
-            pk: if ip_addr.is_empty() {
+            pk: if !ip_addr.is_empty() {
+                format!("{pk_action}#{ip_addr}")
+            } else if !jti.is_empty() {
                 format!("{pk_action}#{jti}")
             } else {
-                format!("{pk_action}#{ip_addr}")
+                panic!("Unable to build pk")
             },
             sk: Sk::Attempt,
             action,
@@ -89,7 +91,13 @@ impl<'a> AuthAttemptDb<'a> {
                 AttributeValue::S(format!(
                     "{action}#{id}",
                     action = action.to_string().convert_snake_case_to_pascal_case(),
-                    id = if ip_addr.is_empty() { jti } else { ip_addr }
+                    id = if !ip_addr.is_empty() {
+                        ip_addr
+                    } else if !jti.is_empty() {
+                        jti
+                    } else {
+                        panic!("Unable to find id")
+                    }
                 )),
             )
             .key("sk", AttributeValue::S("Attempt".to_string()))
@@ -162,7 +170,13 @@ impl<'a> AuthAttemptDb<'a> {
                 AttributeValue::S(format!(
                     "{action}#{id}",
                     action = action.to_string().convert_snake_case_to_pascal_case(),
-                    id = if ip_addr.is_empty() { jti } else { ip_addr }
+                    id = if !ip_addr.is_empty() {
+                        ip_addr
+                    } else if !jti.is_empty() {
+                        jti
+                    } else {
+                        panic!("Unable to find id")
+                    }
                 )),
             )
             .key("sk", AttributeValue::S("Attempt".to_string()))
