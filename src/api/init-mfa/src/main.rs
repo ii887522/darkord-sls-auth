@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use auth_lib::{auth_constants, auth_enums::Action, AuthAttemptDb, AuthUserContext, AuthUserDb};
+use auth_lib::{auth_enums::Action, AuthAttemptDb, AuthUserContext, AuthUserDb};
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
 use common::{
@@ -23,7 +23,7 @@ struct HandlerResponse {
     mfa_provisioning_uri: String,
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -95,6 +95,8 @@ async fn handler(
         return Ok(api_resp.into());
     }
 
+    let user_id = user_ctx.sub.parse().context(Location::caller())?;
+
     let user_db = AuthUserDb {
         dynamodb: &env.dynamodb,
         ssm: Some(&env.ssm),
@@ -104,24 +106,28 @@ async fn handler(
     let revoke_task = attempt_db
         .incr(Action::InitMfa)
         .jti(&*user_ctx.jti)
-        .attempt(auth_constants::MAX_ACTION_ATTEMPT_MAP[&Action::InitMfa])
+        .attempt(Action::InitMfa.get_max_attempt())
         .send();
+
+    let get_user_task = user_db.get_item(user_id);
 
     // Generate an MFA secret for this user
     let mfa_secret = Secret::default().to_encoded().to_string();
 
     // Encrypt and save the MFA secret into this user record
-    let save_task = user_db.set_mfa_secret(&mfa_secret, &user_ctx.sub);
+    let save_task = user_db.set_mfa_secret(user_id, &mfa_secret);
 
     // Kickstart the DB related tasks
-    let (revoke_task_resp, save_task_resp) = tokio::join!(revoke_task, save_task);
+    let (revoke_task_resp, get_user_task_resp, save_task_resp) =
+        tokio::join!(revoke_task, get_user_task, save_task);
     revoke_task_resp.context(Location::caller())?;
+    let user = get_user_task_resp.context(Location::caller())?;
     save_task_resp.context(Location::caller())?;
 
     // Generate an MFA provisioning URI for the user to register the MFA into their device
     let mfa_provisioning_uri = format!(
         "otpauth://totp/Darkord:{email_addr}?secret={mfa_secret}&issuer=Darkord",
-        email_addr = user_ctx.sub
+        email_addr = user.unwrap().email_addr
     );
 
     let resp = HandlerResponse {

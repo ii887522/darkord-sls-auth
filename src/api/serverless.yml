@@ -106,6 +106,7 @@ functions:
       - Effect: Allow
         Action:
           - dynamodb:PutItem
+          - dynamodb:UpdateItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
     events:
@@ -169,6 +170,7 @@ functions:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_attempt
       - Effect: Allow
         Action:
+          - dynamodb:GetItem
           - dynamodb:UpdateItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
@@ -276,6 +278,25 @@ functions:
       - http:
           method: POST
           path: /auth/refresh
+          private: true
+          authorizer:
+            type: TOKEN
+            authorizerId: ${param:authorizerId}
+  logout:
+    handler: logout
+    package:
+      patterns:
+        - "logout/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:DeleteItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_valid_token_pair
+    events:
+      - http:
+          method: POST
+          path: /auth/logout
           private: true
           authorizer:
             type: TOKEN

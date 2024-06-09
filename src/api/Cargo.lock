@@ -1270,6 +1270,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "logout"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "auth-lib",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-ssm",
+ "aws_lambda_events",
+ "common",
+ "jsonwebtoken",
+ "lambda_runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "magic-crypt"
 version = "3.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"

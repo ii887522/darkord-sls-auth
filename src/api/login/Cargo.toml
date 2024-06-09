@@ -3,9 +3,6 @@ name = "login"
 edition = "2021"
 rust-version = "1.78"
 
-[package.metadata.lambda.build.compiler]
-type = "cross"
-
 [lints]
 workspace = true
 

@@ -16,8 +16,7 @@ pub struct AuthSessionToken {
     pub typ: SessionTokenType,
 
     pub jti: String,
-    pub sub: String,
-    pub name: String,
+    pub sub: u32,
     pub exp: u64,
     pub aud: Action,
     pub dest: Action,
@@ -38,6 +37,7 @@ pub struct AuthRefreshToken {
     pub typ: RefreshTokenType,
 
     pub jti: String,
+    pub sub: u32,
     pub exp: u64,
     pub aud: Action,
 }
@@ -57,8 +57,7 @@ pub struct AuthAccessToken {
     pub typ: AccessTokenType,
 
     pub jti: String,
-    pub sub: String,
-    pub name: String,
+    pub sub: u32,
     pub exp: u64,
     pub roles: Vec<Role>,
     pub orig: String,

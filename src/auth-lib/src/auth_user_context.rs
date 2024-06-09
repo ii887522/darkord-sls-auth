@@ -9,8 +9,8 @@ pub struct AuthUserContext {
     pub sub: String,
 
     #[serde(default)]
-    pub name: String,
+    pub dest: Option<Action>,
 
     #[serde(default)]
-    pub dest: Option<Action>,
+    pub orig: String,
 }

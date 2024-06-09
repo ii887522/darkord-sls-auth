@@ -54,7 +54,7 @@ struct HandlerResponse {
     verification_code: String, // todo: Only for testing purpose. To be removed
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -156,7 +156,7 @@ async fn handler(
 
     let verification_code = common::gen_secret_digits().call();
 
-    let db_resp = AuthUserDb {
+    let user_id = AuthUserDb {
         dynamodb: &env.dynamodb,
         ssm: Some(&env.ssm),
     }
@@ -168,14 +168,14 @@ async fn handler(
         req.extra,
         verification_code.to_string(),
         common::extend_current_timestamp()
-            .minutes(3u64)
+            .minutes(5u64)
             .call()
             .context(Location::caller())?,
     )
     .await
     .context(Location::caller());
 
-    if let Err(err) = db_resp {
+    if let Err(err) = user_id {
         let api_resp = err
             .downcast::<CommonError>()
             .context(Location::caller())?
@@ -200,12 +200,11 @@ async fn handler(
         &AuthSessionToken {
             typ: SessionTokenType::Session,
             jti: Uuid::new_v4().to_string(),
+            sub: user_id.context(Location::caller())?,
             exp: common::extend_current_timestamp()
-                .minutes(auth_constants::JWT_TOKEN_VALIDITY_IN_MINUTES_MAP[&Action::VerifyAttr])
+                .minutes(Action::VerifyAttr.get_jwt_token_validity_in_minutes())
                 .call()
                 .context(Location::caller())?,
-            sub: req.email_addr.to_string(),
-            name: req.username.to_string(),
             aud: Action::VerifyAttr,
             dest: Action::InitMfa,
         },

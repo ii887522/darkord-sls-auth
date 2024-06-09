@@ -133,7 +133,7 @@ impl<'a> AuthAttemptDb<'a> {
                 > common::get_current_timestamp()
                     .call()
                     .context(Location::caller())?
-                && attempt.attempt >= auth_constants::MAX_ACTION_ATTEMPT_MAP[&action];
+                && attempt.attempt >= action.get_max_attempt();
 
             Ok(is_blocked)
         } else {
@@ -153,7 +153,7 @@ impl<'a> AuthAttemptDb<'a> {
         let extend_by_in_minutes = if jti.is_empty() {
             60u64
         } else {
-            auth_constants::JWT_TOKEN_VALIDITY_IN_MINUTES_MAP[&action]
+            action.get_jwt_token_validity_in_minutes()
         };
 
         let expired_at = common::extend_current_timestamp()

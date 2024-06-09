@@ -27,7 +27,7 @@ use lambda_runtime::{
 };
 use optarg2chain::optarg_fn;
 use serde_json::{Map, Value};
-use std::{collections::HashSet, mem, panic::Location};
+use std::{collections::HashSet, panic::Location};
 
 #[derive(Debug)]
 struct Env {
@@ -37,7 +37,7 @@ struct Env {
     session_token_secret: String,
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -221,8 +221,8 @@ fn gen_policy(
     effect: IamPolicyEffect,
     jti: String,
     #[optarg_default] sub: String,
-    #[optarg_default] name: String,
     #[optarg_default] dest: Option<Action>,
+    #[optarg_default] orig: String,
 ) -> ApiGatewayCustomAuthorizerResponse<AuthUserContext> {
     ApiGatewayCustomAuthorizerResponse {
         principal_id: Some(principal_id),
@@ -238,27 +238,32 @@ fn gen_policy(
         context: AuthUserContext {
             jti,
             sub,
-            name,
             dest,
+            orig,
         },
         usage_identifier_key: None,
     }
 }
 
 async fn auth_access_token(
-    mut access_token: AuthAccessToken,
+    AuthAccessToken {
+        jti,
+        sub,
+        roles,
+        orig,
+        ..
+    }: AuthAccessToken,
     method_arn_str: &str,
     env: &Env,
 ) -> Result<ApiGatewayCustomAuthorizerResponse<AuthUserContext>> {
     let valid_token_pair = AuthValidTokenPairDb {
         dynamodb: &env.dynamodb,
     }
-    .get_item(&access_token.orig)
+    .get_item(&orig)
     .await
     .context(Location::caller())?;
 
-    if valid_token_pair.is_none() || access_token.jti != valid_token_pair.unwrap().access_token_jti
-    {
+    if valid_token_pair.is_none() || jti != valid_token_pair.unwrap().access_token_jti {
         bail!(AuthError::Unauthorized);
     }
 
@@ -271,39 +276,35 @@ async fn auth_access_token(
     .await
     .context(Location::caller())?;
 
-    let policy_effect = if rbac.is_none()
-        || rbac
-            .unwrap()
-            .roles
-            .is_disjoint(&HashSet::from_iter(mem::take(&mut access_token.roles)))
-    {
-        IamPolicyEffect::Deny
-    } else {
-        IamPolicyEffect::Allow
-    };
+    let policy_effect =
+        if rbac.is_none() || rbac.unwrap().roles.is_disjoint(&HashSet::from_iter(roles)) {
+            IamPolicyEffect::Deny
+        } else {
+            IamPolicyEffect::Allow
+        };
 
     let policy = gen_policy(
         method_arn_str.to_string(),
-        access_token.name.to_string(),
+        sub.to_string(),
         policy_effect,
-        mem::take(&mut access_token.jti),
+        jti,
     )
-    .sub(mem::take(&mut access_token.sub))
-    .name(mem::take(&mut access_token.name))
+    .sub(sub.to_string())
+    .orig(orig)
     .call();
 
     Ok(policy)
 }
 
 async fn auth_refresh_token(
-    mut refresh_token: AuthRefreshToken,
+    AuthRefreshToken { jti, sub, .. }: AuthRefreshToken,
     method_arn_str: &str,
     env: &Env,
 ) -> Result<ApiGatewayCustomAuthorizerResponse<AuthUserContext>> {
     let valid_token_pair = AuthValidTokenPairDb {
         dynamodb: &env.dynamodb,
     }
-    .get_item(&refresh_token.jti)
+    .get_item(&jti)
     .await
     .context(Location::caller())?;
 
@@ -319,22 +320,29 @@ async fn auth_refresh_token(
 
     let policy = gen_policy(
         method_arn_str.to_string(),
-        refresh_token.jti.to_string(),
+        jti.to_string(),
         policy_effect,
-        mem::take(&mut refresh_token.jti),
+        jti,
     )
+    .sub(sub.to_string())
     .call();
 
     Ok(policy)
 }
 
 async fn auth_session_token(
-    mut session_token: AuthSessionToken,
+    AuthSessionToken {
+        jti,
+        sub,
+        aud,
+        dest,
+        ..
+    }: AuthSessionToken,
     method_arn_str: &str,
 ) -> ApiGatewayCustomAuthorizerResponse<AuthUserContext> {
     let policy_effect = if MethodArn::from(method_arn_str)
         .path
-        .ends_with(&format!("/{aud}", aud = session_token.aud))
+        .ends_with(&format!("/{aud}"))
     {
         IamPolicyEffect::Allow
     } else {
@@ -343,12 +351,11 @@ async fn auth_session_token(
 
     gen_policy(
         method_arn_str.to_string(),
-        session_token.name.to_string(),
+        sub.to_string(),
         policy_effect,
-        mem::take(&mut session_token.jti),
+        jti,
     )
-    .sub(mem::take(&mut session_token.sub))
-    .name(mem::take(&mut session_token.name))
-    .dest(session_token.dest)
+    .sub(sub.to_string())
+    .dest(dest)
     .call()
 }

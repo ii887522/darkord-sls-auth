@@ -43,7 +43,7 @@ struct HandlerResponse {
     session_token: String,
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -145,13 +145,15 @@ async fn handler(
         return Ok(api_resp.into());
     }
 
+    let user_id = user_ctx.sub.parse().context(Location::caller())?;
+
     let user_db = AuthUserDb {
         dynamodb: &env.dynamodb,
         ssm: Some(&env.ssm),
     };
 
     let verification_code = user_db
-        .get_verification_code(&user_ctx.sub)
+        .get_verification_code(user_id)
         .await
         .context(Location::caller())?;
 
@@ -177,12 +179,12 @@ async fn handler(
     let revoke_task = attempt_db
         .incr(Action::VerifyAttr)
         .jti(&*user_ctx.jti)
-        .attempt(auth_constants::MAX_ACTION_ATTEMPT_MAP[&Action::VerifyAttr])
+        .attempt(Action::VerifyAttr.get_max_attempt())
         .send();
 
     // Mark email address as verified by this user
     let mark_task =
-        user_db.mark_attrs_as_verified(&user_ctx.sub, HashSet::from_iter([UserAttr::EmailAddr]));
+        user_db.mark_attrs_as_verified(user_id, HashSet::from_iter([UserAttr::EmailAddr]));
 
     // Kickstart the DB related tasks
     let (revoke_task_resp, mark_task_resp) = tokio::join!(revoke_task, mark_task);
@@ -198,11 +200,10 @@ async fn handler(
             typ: SessionTokenType::Session,
             jti: Uuid::new_v4().to_string(),
             exp: common::extend_current_timestamp()
-                .minutes(auth_constants::JWT_TOKEN_VALIDITY_IN_MINUTES_MAP[&next_action])
+                .minutes(next_action.get_jwt_token_validity_in_minutes())
                 .call()
                 .context(Location::caller())?,
-            sub: user_ctx.sub,
-            name: user_ctx.name,
+            sub: user_id,
             aud: next_action,
             dest: next_action,
         },

@@ -1,4 +1,4 @@
-use crate::auth_enums::Role;
+use crate::{auth_constants, auth_enums::Role};
 use anyhow::{Context, Result};
 use aws_sdk_dynamodb::types::AttributeValue;
 use common::common_enums::Method;
@@ -32,7 +32,8 @@ impl<'a> AuthRbacDb<'a> {
         let db_resp = self
             .dynamodb
             .get_item()
-            .key("pk", AttributeValue::S(format!("Route#{method}_{path}")))
+            .table_name(&*auth_constants::AUTH_RBAC_TABLE_NAME)
+            .key("pk", AttributeValue::S(format!("Route#{method}_/{path}")))
             .key("sk", AttributeValue::S("Rbac".to_string()))
             .send()
             .await

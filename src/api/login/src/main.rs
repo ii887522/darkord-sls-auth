@@ -42,7 +42,7 @@ struct HandlerResponse {
     session_token: String,
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -141,13 +141,39 @@ async fn handler(
         }
     };
 
-    let user = AuthUserDb {
+    let user_db = AuthUserDb {
         dynamodb: &env.dynamodb,
         ssm: None,
+    };
+
+    let user_id = user_db
+        .get_user_id(&req.email_addr)
+        .await
+        .context(Location::caller())?;
+
+    if user_id.is_none() {
+        let api_resp = ApiResponse {
+            code: 4010,
+            request_id: &context.request_id,
+            ..Default::default()
+        };
+
+        attempt_db
+            .incr(Action::Login)
+            .ip_addr(&**ip_addr.unwrap_or(&"".to_string()))
+            .send()
+            .await
+            .context(Location::caller())?;
+
+        return Ok(api_resp.into());
     }
-    .get_item(&req.email_addr)
-    .await
-    .context(Location::caller())?;
+
+    let user_id = user_id.unwrap();
+
+    let user = user_db
+        .get_item(user_id)
+        .await
+        .context(Location::caller())?;
 
     if user.is_none() || !common::verify_secret(&req.password, &user.as_ref().unwrap().password) {
         let api_resp = ApiResponse {
@@ -179,11 +205,10 @@ async fn handler(
                 typ: SessionTokenType::Session,
                 jti: Uuid::new_v4().to_string(),
                 exp: common::extend_current_timestamp()
-                    .minutes(auth_constants::JWT_TOKEN_VALIDITY_IN_MINUTES_MAP[&Action::VerifyAttr])
+                    .minutes(Action::VerifyAttr.get_jwt_token_validity_in_minutes())
                     .call()
                     .context(Location::caller())?,
-                sub: user.email_addr,
-                name: user.username,
+                sub: user_id,
                 aud: Action::VerifyAttr,
                 dest: Action::InitMfa,
             },
@@ -200,11 +225,10 @@ async fn handler(
                 typ: SessionTokenType::Session,
                 jti: Uuid::new_v4().to_string(),
                 exp: common::extend_current_timestamp()
-                    .minutes(auth_constants::JWT_TOKEN_VALIDITY_IN_MINUTES_MAP[&Action::VerifyMfa])
+                    .minutes(Action::VerifyMfa.get_jwt_token_validity_in_minutes())
                     .call()
                     .context(Location::caller())?,
-                sub: user.email_addr,
-                name: user.username,
+                sub: user_id,
                 aud: Action::VerifyMfa,
                 dest: Action::VerifyMfa,
             },

@@ -43,7 +43,7 @@ struct HandlerResponse {
     access_token: String,
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -147,11 +147,13 @@ async fn handler(
         return Ok(api_resp.into());
     }
 
+    let user_id = user_ctx.sub.parse().context(Location::caller())?;
+
     let mfa_secret = AuthUserDb {
         dynamodb: &env.dynamodb,
         ssm: Some(&env.ssm),
     }
-    .get_mfa_secret(&user_ctx.sub)
+    .get_mfa_secret(user_id)
     .await
     .context(Location::caller())?;
 
@@ -209,7 +211,7 @@ async fn handler(
     let revoke_task = attempt_db
         .incr(Action::VerifyMfa)
         .jti(&*user_ctx.jti)
-        .attempt(auth_constants::MAX_ACTION_ATTEMPT_MAP[&Action::VerifyMfa])
+        .attempt(Action::VerifyMfa.get_max_attempt())
         .send();
 
     let refresh_token_jti = Uuid::new_v4().to_string();
@@ -237,6 +239,7 @@ async fn handler(
         &AuthRefreshToken {
             typ: RefreshTokenType::Refresh,
             jti: refresh_token_jti.to_string(),
+            sub: user_id,
             exp: refresh_token_exp,
             aud: Action::Refresh,
         },
@@ -253,8 +256,7 @@ async fn handler(
                 .minutes(5u64)
                 .call()
                 .context(Location::caller())?,
-            sub: user_ctx.sub,
-            name: user_ctx.name,
+            sub: user_id,
             roles: vec![Role::User],
             orig: refresh_token_jti,
         },

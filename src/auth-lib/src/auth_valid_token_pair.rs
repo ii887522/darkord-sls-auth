@@ -2,7 +2,7 @@ use crate::auth_constants;
 use anyhow::{bail, Context, Error, Result};
 use aws_sdk_dynamodb::{
     error::SdkError,
-    operation::update_item::UpdateItemError::{self, ConditionalCheckFailedException},
+    operation::{delete_item::DeleteItemError, update_item::UpdateItemError},
     types::AttributeValue,
 };
 use common::CommonError;
@@ -93,11 +93,11 @@ impl<'a> AuthValidTokenPairDb<'a> {
 
         if let Err(err) = db_resp {
             let err = err
-                .downcast::<SdkError<UpdateItemError>>()
+                .downcast::<SdkError<_>>()
                 .context(Location::caller())?
                 .into_service_error();
 
-            if let ConditionalCheckFailedException(_) = err {
+            if let UpdateItemError::ConditionalCheckFailedException(_) = err {
                 let err = CommonError {
                     code: 4010,
                     ..Default::default()
@@ -132,5 +132,41 @@ impl<'a> AuthValidTokenPairDb<'a> {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn delete_item(&'a self, refresh_token_jti: &str) -> Result<()> {
+        let db_resp = self
+            .dynamodb
+            .delete_item()
+            .table_name(&*auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME)
+            .key(
+                "pk",
+                AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
+            )
+            .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
+            .condition_expression("attribute_exists(pk)")
+            .send()
+            .await
+            .context(Location::caller());
+
+        if let Err(err) = db_resp {
+            let err = err
+                .downcast::<SdkError<_>>()
+                .context(Location::caller())?
+                .into_service_error();
+
+            if let DeleteItemError::ConditionalCheckFailedException(_) = err {
+                let err = CommonError {
+                    code: 4001,
+                    message: "User already logged out",
+                };
+
+                bail!(err);
+            } else {
+                return Err(Error::from(err).context(Location::caller()));
+            }
+        }
+
+        Ok(())
     }
 }

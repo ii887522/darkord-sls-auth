@@ -29,7 +29,7 @@ struct HandlerResponse {
     access_token: String,
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     common_tracing::init();
 
@@ -123,8 +123,7 @@ async fn handler(
                 .minutes(5u64)
                 .call()
                 .context(Location::caller())?,
-            sub: user_ctx.sub,
-            name: user_ctx.name,
+            sub: user_ctx.sub.parse().context(Location::caller())?,
             roles: vec![Role::User],
             orig: user_ctx.jti,
         },
