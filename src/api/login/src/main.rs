@@ -146,12 +146,11 @@ async fn handler(
         ssm: None,
     };
 
-    let user_id = user_db
+    let Some(user_id) = user_db
         .get_user_id(&req.email_addr)
         .await
-        .context(Location::caller())?;
-
-    if user_id.is_none() {
+        .context(Location::caller())?
+    else {
         let api_resp = ApiResponse {
             code: 4010,
             request_id: &context.request_id,
@@ -166,16 +165,30 @@ async fn handler(
             .context(Location::caller())?;
 
         return Ok(api_resp.into());
-    }
+    };
 
-    let user_id = user_id.unwrap();
-
-    let user = user_db
+    let Some(user) = user_db
         .get_item(user_id)
         .await
-        .context(Location::caller())?;
+        .context(Location::caller())?
+    else {
+        let api_resp = ApiResponse {
+            code: 4010,
+            request_id: &context.request_id,
+            ..Default::default()
+        };
 
-    if user.is_none() || !common::verify_secret(&req.password, &user.as_ref().unwrap().password) {
+        attempt_db
+            .incr(Action::Login)
+            .ip_addr(&**ip_addr.unwrap_or(&"".to_string()))
+            .send()
+            .await
+            .context(Location::caller())?;
+
+        return Ok(api_resp.into());
+    };
+
+    if !common::verify_secret(&req.password, &user.password) {
         let api_resp = ApiResponse {
             code: 4010,
             request_id: &context.request_id,
@@ -191,8 +204,6 @@ async fn handler(
 
         return Ok(api_resp.into());
     }
-
-    let user = user.unwrap();
 
     let resp = if !user.verified_attrs.contains(&UserAttr::EmailAddr) {
         // todo: Send a verification email to the given email address with the verification code

@@ -15,6 +15,7 @@ pub enum Action {
     Login,
     VerifyMfa,
     Refresh,
+    ResetPassword,
 }
 
 impl Action {
@@ -26,6 +27,7 @@ impl Action {
             Action::Login => *auth_constants::MAX_LOGIN_ATTEMPT,
             Action::VerifyMfa => *auth_constants::MAX_VERIFY_MFA_ATTEMPT,
             Action::Refresh => u32::MAX,
+            Action::ResetPassword => *auth_constants::MAX_RESET_PASSWORD_ATTEMPT,
         }
     }
 
@@ -37,6 +39,7 @@ impl Action {
             Action::Login => 0,
             Action::VerifyMfa => 5,
             Action::Refresh => 24 * 60, // 1 day
+            Action::ResetPassword => 5,
         }
     }
 }

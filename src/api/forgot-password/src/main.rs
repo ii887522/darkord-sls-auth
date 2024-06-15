@@ -1,9 +1,9 @@
 use anyhow::{Context as _, Result};
 use auth_lib::{
     auth_constants,
-    auth_enums::{Action, Locale},
+    auth_enums::Action,
     auth_jwt::{AuthSessionToken, SessionTokenType},
-    AuthAttemptDb, AuthUserDb,
+    AuthUserDb,
 };
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
@@ -11,12 +11,11 @@ use common::{
     self,
     common_serde::Request,
     common_tracing::{self, Logger},
-    ApiResponse, CommonError, TrimmedString,
+    ApiResponse, TrimmedString,
 };
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use std::panic::Location;
 use uuid::Uuid;
 use validator::Validate;
@@ -24,26 +23,13 @@ use validator::Validate;
 #[derive(Debug)]
 struct Env {
     dynamodb: aws_sdk_dynamodb::Client,
-    ssm: aws_sdk_ssm::Client,
     session_token_secret: String,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Validate)]
 struct HandlerRequest {
-    #[validate(length(min = 1))]
-    username: TrimmedString,
-
     #[validate(email, length(min = 1))]
     email_addr: TrimmedString,
-
-    #[validate(length(min = 1))]
-    password: String,
-
-    #[serde(default)]
-    locale: Locale,
-
-    #[serde(default)]
-    extra: Map<String, Value>,
 }
 
 impl Request for HandlerRequest {}
@@ -51,7 +37,6 @@ impl Request for HandlerRequest {}
 #[derive(Debug, Default, PartialEq, Serialize)]
 struct HandlerResponse {
     session_token: String,
-    verification_code: String, // todo: Only for testing purpose. To be removed
 }
 
 #[tokio::main]
@@ -75,7 +60,6 @@ async fn main() -> Result<(), Error> {
 
     let env = Env {
         dynamodb,
-        ssm,
         session_token_secret,
     };
 
@@ -118,28 +102,6 @@ async fn handler(
         return Ok(api_resp.into());
     }
 
-    let ip_addr = event.request_context.identity.source_ip.as_ref();
-
-    let attempt_db = AuthAttemptDb {
-        dynamodb: &env.dynamodb,
-    };
-
-    if attempt_db
-        .is_blocked(Action::SignUp)
-        .ip_addr(&**ip_addr.unwrap_or(&"".to_string()))
-        .send()
-        .await
-        .context(Location::caller())?
-    {
-        let api_resp = ApiResponse {
-            code: 4030,
-            request_id: &context.request_id,
-            ..Default::default()
-        };
-
-        return Ok(api_resp.into());
-    }
-
     let req = match HandlerRequest::load(&event) {
         Ok(req) => req,
         Err(err) => {
@@ -154,48 +116,28 @@ async fn handler(
         }
     };
 
-    let verification_code = common::gen_secret_digits().call();
-
-    let user_id = AuthUserDb {
+    let user_db = AuthUserDb {
         dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    }
-    .put_item(
-        req.username.to_string(),
-        req.email_addr.to_string(),
-        &req.password,
-        req.locale,
-        req.extra,
-        verification_code.to_string(),
-        common::extend_current_timestamp()
-            .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
-            .call()
-            .context(Location::caller())?,
-    )
-    .await
-    .context(Location::caller());
-
-    let user_id = match user_id {
-        Ok(user_id) => user_id,
-        Err(err) => {
-            let api_resp = err
-                .downcast::<CommonError>()
-                .context(Location::caller())?
-                .into_api_resp(&context.request_id);
-
-            attempt_db
-                .incr(Action::SignUp)
-                .ip_addr(&**ip_addr.unwrap_or(&"".to_string()))
-                .send()
-                .await
-                .context(Location::caller())?;
-
-            return Ok(api_resp.into());
-        }
+        ssm: None,
     };
 
-    // todo: Send a verification email to the given email address with the verification code
-    // todo: Email content based on the given locale
+    let user_id = user_db
+        .get_user_id(&req.email_addr)
+        .await
+        .context(Location::caller())?;
+
+    if let Some(user_id) = user_id {
+        // Generate a new verification code and update it into the user record
+        let verification_code = common::gen_secret_digits().call();
+
+        user_db
+            .set_verification_code(user_id, verification_code)
+            .await
+            .context(Location::caller())?;
+
+        // todo: Send a verification email to the given email address with the verification code
+        // todo: Email content based on the given locale
+    }
 
     // Generate a new session token that is authorized to call verify-email API
     let session_token = jsonwebtoken::encode(
@@ -203,26 +145,25 @@ async fn handler(
         &AuthSessionToken {
             typ: SessionTokenType::Session,
             jti: Uuid::new_v4().to_string(),
-            sub: user_id,
+            sub: user_id.unwrap_or_else(|| {
+                // Generate a fake user_id based on the email address given
+                common::hash(&req.email_addr) as u32
+            }),
             exp: common::extend_current_timestamp()
                 .minutes(Action::VerifyAttr.get_jwt_token_validity_in_minutes())
                 .call()
                 .context(Location::caller())?,
             aud: Action::VerifyAttr,
-            dest: Action::InitMfa,
+            dest: Action::ResetPassword,
         },
         &EncodingKey::from_secret(env.session_token_secret.as_ref()),
     )
     .context(Location::caller())?;
 
-    let resp = HandlerResponse {
-        session_token,
-        verification_code,
-    };
-
     let api_resp = ApiResponse {
         code: 2000,
-        payload: serde_json::to_value(resp).context(Location::caller())?,
+        payload: serde_json::to_value(HandlerResponse { session_token })
+            .context(Location::caller())?,
         request_id: &context.request_id,
         ..Default::default()
     };

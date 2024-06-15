@@ -48,6 +48,7 @@ params:
     maxInitMfaAttempt: 1
     maxLoginAttempt: 20
     maxVerifyMfaAttempt: 3
+    maxResetPasswordAttempt: 1
 
   prod:
     profile: darkord
@@ -68,6 +69,7 @@ params:
     maxInitMfaAttempt: 1
     maxLoginAttempt: 20
     maxVerifyMfaAttempt: 3
+    maxResetPasswordAttempt: 1
 
 custom:
   prune:
@@ -301,6 +303,55 @@ functions:
           authorizer:
             type: TOKEN
             authorizerId: ${param:authorizerId}
+  forgot-password:
+    handler: forgot-password
+    package:
+      patterns:
+        - "forgot-password/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - ssm:GetParameter
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:UpdateItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
+    events:
+      - http:
+          method: POST
+          path: /auth/forgot_password
+          private: true
+  reset-password:
+    handler: reset-password
+    package:
+      patterns:
+        - "reset-password/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - ssm:GetParameter
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:UpdateItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
+    events:
+      - http:
+          method: POST
+          path: /auth/reset_password
+          private: true
+          authorizer:
+            type: TOKEN
+            authorizerId: ${param:authorizerId}
+    environment:
+      MAX_RESET_PASSWORD_ATTEMPT: ${param:maxResetPasswordAttempt}
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work

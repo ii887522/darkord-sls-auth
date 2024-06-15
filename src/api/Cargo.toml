@@ -8,6 +8,8 @@ members = [
   "verify-mfa",
   "refresh",
   "logout",
+  "forgot-password",
+  "reset-password",
 ]
 
 [workspace.lints.rust]

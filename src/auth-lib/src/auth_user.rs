@@ -119,7 +119,7 @@ impl<'a> AuthUserDb<'a> {
         &'a self,
         username: String,
         email_addr: String,
-        password: String,
+        password: &str,
         locale: Locale,
         extra: Map<String, Value>,
         verification_code: String,
@@ -148,7 +148,7 @@ impl<'a> AuthUserDb<'a> {
             .user_id(user_id)
             .username(username.to_string())
             .email_addr(email_addr.to_string())
-            .password(password)
+            .password(common::hash_secret(password))
             .locale(locale)
             .extra(extra)
             .verification_code(verification_code)
@@ -186,7 +186,7 @@ impl<'a> AuthUserDb<'a> {
                         Put::builder()
                             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
                             .set_item(Some(
-                                serde_dynamo::to_item(pk_email_addr_user)
+                                serde_dynamo::to_item(pk_username_user)
                                     .context(Location::caller())?,
                             ))
                             .condition_expression("attribute_not_exists(pk)")
@@ -204,7 +204,7 @@ impl<'a> AuthUserDb<'a> {
                         Put::builder()
                             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
                             .set_item(Some(
-                                serde_dynamo::to_item(pk_username_user)
+                                serde_dynamo::to_item(pk_email_addr_user)
                                     .context(Location::caller())?,
                             ))
                             .condition_expression("attribute_not_exists(pk)")
@@ -438,5 +438,51 @@ impl<'a> AuthUserDb<'a> {
         }
 
         Ok(None)
+    }
+
+    pub async fn set_verification_code(
+        &'a self,
+        user_id: u32,
+        verification_code: String,
+    ) -> Result<()> {
+        self.dynamodb
+            .update_item()
+            .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
+            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
+            .key("sk", AttributeValue::S("User".to_string()))
+            .update_expression("SET verification_code = :vc, code_expired_at = :cea")
+            .condition_expression("attribute_exists(pk)")
+            .expression_attribute_values(":vc", AttributeValue::S(verification_code))
+            .expression_attribute_values(
+                ":cea",
+                AttributeValue::N(
+                    common::extend_current_timestamp()
+                        .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
+                        .call()
+                        .context(Location::caller())?
+                        .to_string(),
+                ),
+            )
+            .send()
+            .await
+            .context(Location::caller())?;
+
+        Ok(())
+    }
+
+    pub async fn set_password(&'a self, user_id: u32, password: &str) -> Result<()> {
+        self.dynamodb
+            .update_item()
+            .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
+            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
+            .key("sk", AttributeValue::S("User".to_string()))
+            .update_expression("SET password = :p")
+            .condition_expression("attribute_exists(pk)")
+            .expression_attribute_values(":p", AttributeValue::S(common::hash_secret(password)))
+            .send()
+            .await
+            .context(Location::caller())?;
+
+        Ok(())
     }
 }

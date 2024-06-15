@@ -51,6 +51,12 @@ pub static MAX_VERIFY_MFA_ATTEMPT: Lazy<u32> = Lazy::new(|| {
         .parse()
         .unwrap()
 });
+pub static MAX_RESET_PASSWORD_ATTEMPT: Lazy<u32> = Lazy::new(|| {
+    env::var("MAX_RESET_PASSWORD_ATTEMPT")
+        .unwrap_or_else(|_| "0".to_string())
+        .parse()
+        .unwrap()
+});
 
 // JWT token types
 pub const TOKEN_TYPE_ACCESS: &str = "access";
@@ -62,4 +68,8 @@ pub const AUDIENCE_ACTIONS: &[Action] = &[
     Action::InitMfa,
     Action::VerifyMfa,
     Action::Refresh,
+    Action::ResetPassword,
 ];
+
+// Validities in minutes
+pub const VERIFICATION_CODE_VALIDITY_IN_MINUTES: u64 = 5;

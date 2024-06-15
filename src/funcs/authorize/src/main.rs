@@ -256,14 +256,17 @@ async fn auth_access_token(
     method_arn_str: &str,
     env: &Env,
 ) -> Result<ApiGatewayCustomAuthorizerResponse<AuthUserContext>> {
-    let valid_token_pair = AuthValidTokenPairDb {
+    let Some(valid_token_pair) = AuthValidTokenPairDb {
         dynamodb: &env.dynamodb,
     }
     .get_item(&orig)
     .await
-    .context(Location::caller())?;
+    .context(Location::caller())?
+    else {
+        bail!(AuthError::Unauthorized);
+    };
 
-    if valid_token_pair.is_none() || jti != valid_token_pair.unwrap().access_token_jti {
+    if jti != valid_token_pair.access_token_jti {
         bail!(AuthError::Unauthorized);
     }
 
@@ -276,12 +279,15 @@ async fn auth_access_token(
     .await
     .context(Location::caller())?;
 
-    let policy_effect =
-        if rbac.is_none() || rbac.unwrap().roles.is_disjoint(&HashSet::from_iter(roles)) {
+    let policy_effect = if let Some(rbac) = rbac {
+        if rbac.roles.is_disjoint(&HashSet::from_iter(roles)) {
             IamPolicyEffect::Deny
         } else {
             IamPolicyEffect::Allow
-        };
+        }
+    } else {
+        IamPolicyEffect::Deny
+    };
 
     let policy = gen_policy(
         method_arn_str.to_string(),
@@ -301,16 +307,15 @@ async fn auth_refresh_token(
     method_arn_str: &str,
     env: &Env,
 ) -> Result<ApiGatewayCustomAuthorizerResponse<AuthUserContext>> {
-    let valid_token_pair = AuthValidTokenPairDb {
+    let Some(_valid_token_pair) = AuthValidTokenPairDb {
         dynamodb: &env.dynamodb,
     }
     .get_item(&jti)
     .await
-    .context(Location::caller())?;
-
-    if valid_token_pair.is_none() {
+    .context(Location::caller())?
+    else {
         bail!(AuthError::Unauthorized);
-    }
+    };
 
     let policy_effect = if MethodArn::from(method_arn_str).path.ends_with("/refresh") {
         IamPolicyEffect::Allow
