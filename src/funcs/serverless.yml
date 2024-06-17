@@ -14,7 +14,6 @@ provider:
   deploymentBucket:
     name: darkord-sls-${sls:stage}-deployment-bucket
     serverSideEncryption: AES256
-    blockPublicAccess: true
   apiGateway:
     restApiId: ${param:restApiId}
     restApiRootResourceId: ${param:restApiRootResourceId}
@@ -56,6 +55,8 @@ params:
     authorizerId: "" # todo: Deploy authorizer to production and note the ID
 
 custom:
+  deploymentBucket:
+    blockPublicAccess: true
   prune:
     automatic: true
     includeLayers: true

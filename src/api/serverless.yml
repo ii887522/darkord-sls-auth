@@ -14,7 +14,6 @@ provider:
   deploymentBucket:
     name: darkord-sls-${sls:stage}-deployment-bucket
     serverSideEncryption: AES256
-    blockPublicAccess: true
   apiGateway:
     restApiId: ${param:restApiId}
     restApiRootResourceId: ${param:restApiRootResourceId}
@@ -72,6 +71,8 @@ params:
     maxResetPasswordAttempt: 1
 
 custom:
+  deploymentBucket:
+    blockPublicAccess: true
   prune:
     automatic: true
     includeLayers: true
@@ -327,18 +328,20 @@ functions:
           private: true
   reset-password:
     handler: reset-password
+    memorySize: 256
     package:
       patterns:
         - "reset-password/**"
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
         Resource:
-          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_attempt
       - Effect: Allow
         Action:
-          - dynamodb:GetItem
           - dynamodb:UpdateItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user

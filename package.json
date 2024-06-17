@@ -3,13 +3,13 @@
   "version": "1.0.0",
   "description": "Auth microservice that provides authentication and authorization to enhance the security of any web server",
   "scripts": {
-    "deploy:stage": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy --stage stage",
-    "deploy:prod": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy --stage prod --verbose",
-    "deploy:api": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-api:deploy --stage stage",
-    "deploy:api:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-api:deploy function --stage stage -f",
-    "deploy:db": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-db:deploy --stage stage",
-    "deploy:funcs": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-funcs:deploy --stage stage",
-    "deploy:funcs:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-funcs:deploy function --stage stage -f"
+    "deploy:stage": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy --stage stage --verbose",
+    "deploy:prod": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy --stage prod --verbose --conceal",
+    "deploy:api": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-api:deploy --stage stage --verbose",
+    "deploy:api:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-api:deploy function --stage stage --verbose -f",
+    "deploy:db": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-db:deploy --stage stage --verbose",
+    "deploy:funcs": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-funcs:deploy --stage stage --verbose",
+    "deploy:funcs:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-funcs:deploy function --stage stage --verbose -f"
   },
   "repository": {
     "type": "git",

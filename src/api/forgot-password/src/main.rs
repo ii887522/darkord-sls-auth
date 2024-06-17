@@ -37,6 +37,7 @@ impl Request for HandlerRequest {}
 #[derive(Debug, Default, PartialEq, Serialize)]
 struct HandlerResponse {
     session_token: String,
+    verification_code: String, // todo: Only for testing purpose. To be removed
 }
 
 #[tokio::main]
@@ -126,12 +127,12 @@ async fn handler(
         .await
         .context(Location::caller())?;
 
-    if let Some(user_id) = user_id {
-        // Generate a new verification code and update it into the user record
-        let verification_code = common::gen_secret_digits().call();
+    // Generate a new verification code and update it into the user record
+    let verification_code = common::gen_secret_digits().call();
 
+    if let Some(user_id) = user_id {
         user_db
-            .set_verification_code(user_id, verification_code)
+            .set_verification_code(user_id, verification_code.to_string())
             .await
             .context(Location::caller())?;
 
@@ -160,10 +161,14 @@ async fn handler(
     )
     .context(Location::caller())?;
 
+    let resp = HandlerResponse {
+        session_token,
+        verification_code,
+    };
+
     let api_resp = ApiResponse {
         code: 2000,
-        payload: serde_json::to_value(HandlerResponse { session_token })
-            .context(Location::caller())?,
+        payload: serde_json::to_value(resp).context(Location::caller())?,
         request_id: &context.request_id,
         ..Default::default()
     };

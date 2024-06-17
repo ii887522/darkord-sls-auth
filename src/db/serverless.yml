@@ -10,7 +10,6 @@ provider:
   deploymentBucket:
     name: darkord-sls-${sls:stage}-deployment-bucket
     serverSideEncryption: AES256
-    blockPublicAccess: true
 
 params:
   stage:
@@ -27,6 +26,10 @@ params:
     deletionProtection: true
     pointInTimeRecovery: false
     stagePrefix: ""
+
+custom:
+  deploymentBucket:
+    blockPublicAccess: true
 
 resources:
   Resources:
