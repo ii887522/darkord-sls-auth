@@ -7,6 +7,7 @@ use auth_lib::{
 };
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
+use aws_sdk_ssm::types::Parameter;
 use common::{
     common_tracing::{self, Logger},
     ApiResponse, CommonError,
@@ -15,13 +16,14 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::Serialize;
 use serde_json::Value;
-use std::panic::Location;
+use std::{mem, panic::Location};
 use uuid::Uuid;
 
 #[derive(Debug)]
 struct Env {
     dynamodb: aws_sdk_dynamodb::Client,
     access_token_secret: String,
+    access_token_secret_version: u32,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize)]
@@ -37,20 +39,29 @@ async fn main() -> Result<(), Error> {
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ssm = aws_sdk_ssm::Client::new(&config);
 
-    let access_token_secret = ssm
-        .get_parameter()
-        .name(auth_constants::ACCESS_TOKEN_PARAM_PATH)
-        .with_decryption(true)
-        .send()
-        .await?
-        .parameter
-        .unwrap()
-        .value
-        .unwrap();
+    // Fetch the latest version of access token secret key
+    let access_token_secret = mem::replace(
+        ssm.get_parameters_by_path()
+            .path(auth_constants::ACCESS_TOKEN_PARAM_PATH)
+            .with_decryption(true)
+            .send()
+            .await?
+            .parameters
+            .unwrap()
+            .last_mut()
+            .unwrap(),
+        Parameter::builder().build(),
+    );
 
     let env = Env {
         dynamodb,
-        access_token_secret,
+        access_token_secret: access_token_secret.value.unwrap(),
+        access_token_secret_version: access_token_secret
+            .name
+            .unwrap()
+            .strip_prefix(&format!("{}/v", auth_constants::ACCESS_TOKEN_PARAM_PATH))
+            .unwrap()
+            .parse()?,
     };
 
     run(service_fn(
@@ -118,9 +129,10 @@ async fn handler(
         &Header::new(Algorithm::HS512),
         &AuthAccessToken {
             typ: AccessTokenType::Access,
+            ver: env.access_token_secret_version,
             jti: access_token_jti,
             exp: common::extend_current_timestamp()
-                .minutes(5u64)
+                .minutes(5)
                 .call()
                 .context(Location::caller())?,
             sub: user_ctx.sub.parse().context(Location::caller())?,

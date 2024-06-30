@@ -29,6 +29,7 @@ pub struct AuthRbacDb<'a> {
 
 impl<'a> AuthRbacDb<'a> {
     pub async fn get_item(&'a self, method: &str, path: &str) -> Result<Option<AuthRbac>> {
+        // todo: Consider cache the result in this lambda environment
         let db_resp = self
             .dynamodb
             .get_item()

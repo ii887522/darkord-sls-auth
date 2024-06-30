@@ -2,7 +2,7 @@ use anyhow::{bail, Context as _, Result};
 use auth_lib::{
     auth_constants,
     auth_enums::{Action, JwtToken},
-    auth_jwt::{AuthAccessToken, AuthRefreshToken, AuthSessionToken, JwtTokenSecrets},
+    auth_jwt::{AuthAccessToken, AuthRefreshToken, AuthSessionToken},
     AuthError, AuthRbacDb, AuthUserContext, AuthValidTokenPairDb,
 };
 use aws_config::BehaviorVersion;
@@ -27,15 +27,14 @@ use lambda_runtime::{
 };
 use optarg2chain::optarg_fn;
 use serde_json::{Map, Value};
-use std::{
-    collections::{HashMap, HashSet},
-    panic::Location,
-};
+use std::{collections::HashSet, panic::Location};
 
 #[derive(Debug)]
 struct Env {
     dynamodb: aws_sdk_dynamodb::Client,
-    jwt_token_secrets_map: HashMap<u64, JwtTokenSecrets>,
+    access_token_secret: String,
+    refresh_token_secret: String,
+    session_token_secret: String,
 }
 
 #[tokio::main]
@@ -46,87 +45,22 @@ async fn main() -> Result<(), Error> {
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ssm = aws_sdk_ssm::Client::new(&config);
 
-    let get_access_token_secrets_task = ssm
+    let [access_token_secret, refresh_token_secret, session_token_secret] = ssm
         .get_parameters_by_path()
-        .path(auth_constants::ACCESS_TOKEN_PARAM_PATH)
+        .path(auth_constants::JWT_TOKEN_PARAM_PATH)
         .with_decryption(true)
-        .send();
-
-    let get_refresh_token_secrets_task = ssm
-        .get_parameters_by_path()
-        .path(auth_constants::REFRESH_TOKEN_PARAM_PATH)
-        .with_decryption(true)
-        .send();
-
-    let get_session_token_secrets_task = ssm
-        .get_parameters_by_path()
-        .path(auth_constants::SESSION_TOKEN_PARAM_PATH)
-        .with_decryption(true)
-        .send();
-
-    let (
-        get_access_token_secrets_task_resp,
-        get_refresh_token_secrets_task_resp,
-        get_session_token_secrets_task_resp,
-    ) = tokio::join!(
-        get_access_token_secrets_task,
-        get_refresh_token_secrets_task,
-        get_session_token_secrets_task
-    );
-
-    let access_token_secrets = get_access_token_secrets_task_resp?.parameters.unwrap();
-    let refresh_token_secrets = get_refresh_token_secrets_task_resp?.parameters.unwrap();
-    let session_token_secrets = get_session_token_secrets_task_resp?.parameters.unwrap();
-
-    let mut jwt_token_secrets_map = HashMap::<_, JwtTokenSecrets>::with_capacity(
-        access_token_secrets.len() + refresh_token_secrets.len() + session_token_secrets.len(),
-    );
-
-    for access_token_secret in access_token_secrets {
-        jwt_token_secrets_map
-            .entry(
-                access_token_secret
-                    .name
-                    .unwrap()
-                    .strip_prefix(&format!("{}/v", auth_constants::ACCESS_TOKEN_PARAM_PATH))
-                    .unwrap()
-                    .parse()?,
-            )
-            .or_default()
-            .access_token_secret = access_token_secret.value.unwrap();
-    }
-
-    for refresh_token_secret in refresh_token_secrets {
-        jwt_token_secrets_map
-            .entry(
-                refresh_token_secret
-                    .name
-                    .unwrap()
-                    .strip_prefix(&format!("{}/v", auth_constants::REFRESH_TOKEN_PARAM_PATH))
-                    .unwrap()
-                    .parse()?,
-            )
-            .or_default()
-            .refresh_token_secret = refresh_token_secret.value.unwrap();
-    }
-
-    for session_token_secret in session_token_secrets {
-        jwt_token_secrets_map
-            .entry(
-                session_token_secret
-                    .name
-                    .unwrap()
-                    .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
-                    .unwrap()
-                    .parse()?,
-            )
-            .or_default()
-            .session_token_secret = session_token_secret.value.unwrap();
-    }
+        .send()
+        .await?
+        .parameters
+        .unwrap()
+        .try_into()
+        .unwrap();
 
     let env = Env {
         dynamodb,
-        jwt_token_secrets_map,
+        access_token_secret: access_token_secret.value.unwrap(),
+        refresh_token_secret: refresh_token_secret.value.unwrap(),
+        session_token_secret: session_token_secret.value.unwrap(),
     };
 
     run(service_fn(|event: LambdaEvent<Value>| async {
@@ -226,17 +160,17 @@ fn decode(jwt_token: &str, env: &Env) -> Result<JwtToken> {
     disabled_validation.insecure_disable_signature_validation();
     disabled_validation.validate_aud = false;
 
-    let unsafe_jwt_token = jsonwebtoken::decode::<Value>(
+    // Find the type of this JWT token
+    let jwt_token = match jsonwebtoken::decode::<Value>(
         jwt_token,
         &DecodingKey::from_secret(&[]),
         &disabled_validation,
-    )?;
-
-    let empty_claims = Map::new();
-    let unsafe_claims = unsafe_jwt_token.claims.as_object().unwrap_or(&empty_claims);
-
-    // Find the type of this JWT token
-    let jwt_token = match unsafe_claims.get("typ") {
+    )?
+    .claims
+    .as_object()
+    .unwrap_or(&Map::new())
+    .get("typ")
+    {
         Some(Value::String(typ)) => {
             let mut validation = Validation::new(Algorithm::HS512);
             validation.set_audience(auth_constants::AUDIENCE_ACTIONS);
@@ -246,11 +180,7 @@ fn decode(jwt_token: &str, env: &Env) -> Result<JwtToken> {
                 auth_constants::TOKEN_TYPE_ACCESS => {
                     let jwt_token = jsonwebtoken::decode(
                         jwt_token,
-                        &DecodingKey::from_secret(
-                            env.jwt_token_secrets_map[&unsafe_claims["ver"].as_u64().unwrap()]
-                                .access_token_secret
-                                .as_bytes(),
-                        ),
+                        &DecodingKey::from_secret(env.access_token_secret.as_bytes()),
                         &validation,
                     )?;
 
@@ -259,11 +189,7 @@ fn decode(jwt_token: &str, env: &Env) -> Result<JwtToken> {
                 auth_constants::TOKEN_TYPE_REFRESH => {
                     let jwt_token = jsonwebtoken::decode(
                         jwt_token,
-                        &DecodingKey::from_secret(
-                            env.jwt_token_secrets_map[&unsafe_claims["ver"].as_u64().unwrap()]
-                                .refresh_token_secret
-                                .as_bytes(),
-                        ),
+                        &DecodingKey::from_secret(env.refresh_token_secret.as_bytes()),
                         &validation,
                     )?;
 
@@ -272,11 +198,7 @@ fn decode(jwt_token: &str, env: &Env) -> Result<JwtToken> {
                 auth_constants::TOKEN_TYPE_SESSION => {
                     let jwt_token = jsonwebtoken::decode(
                         jwt_token,
-                        &DecodingKey::from_secret(
-                            env.jwt_token_secrets_map[&unsafe_claims["ver"].as_u64().unwrap()]
-                                .session_token_secret
-                                .as_bytes(),
-                        ),
+                        &DecodingKey::from_secret(env.session_token_secret.as_bytes()),
                         &validation,
                     )?;
 
@@ -349,7 +271,6 @@ async fn auth_access_token(
 
     let method_arn = MethodArn::from(method_arn_str);
 
-    // todo: Consider cache the result in this lambda environment
     let rbac = AuthRbacDb {
         dynamodb: &env.dynamodb,
     }

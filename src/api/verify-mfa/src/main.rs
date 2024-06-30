@@ -7,6 +7,7 @@ use auth_lib::{
 };
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
+use aws_sdk_ssm::types::Parameter;
 use common::{
     common_serde::Request,
     common_tracing::{self, Logger},
@@ -16,7 +17,7 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::panic::Location;
+use std::{mem, panic::Location};
 use totp_rs::{Rfc6238, Secret, TOTP};
 use uuid::Uuid;
 use validator::Validate;
@@ -26,7 +27,9 @@ struct Env {
     dynamodb: aws_sdk_dynamodb::Client,
     ssm: aws_sdk_ssm::Client,
     access_token_secret: String,
+    access_token_secret_version: u32,
     refresh_token_secret: String,
+    refresh_token_secret_version: u32,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Validate)]
@@ -51,23 +54,59 @@ async fn main() -> Result<(), Error> {
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ssm = aws_sdk_ssm::Client::new(&config);
 
-    let [access_token_secret, refresh_token_secret, _] = ssm
+    let get_access_token_secret_task = ssm
         .get_parameters_by_path()
-        .path(auth_constants::JWT_TOKEN_PARAM_PATH)
-        .recursive(false)
+        .path(auth_constants::ACCESS_TOKEN_PARAM_PATH)
         .with_decryption(true)
-        .send()
-        .await?
-        .parameters
-        .unwrap()
-        .try_into()
-        .unwrap();
+        .send();
+
+    let get_refresh_token_secret_task = ssm
+        .get_parameters_by_path()
+        .path(auth_constants::REFRESH_TOKEN_PARAM_PATH)
+        .with_decryption(true)
+        .send();
+
+    // Kickstart the SSM related tasks
+    let (get_access_token_secret_task_resp, get_refresh_token_secret_task_resp) =
+        tokio::join!(get_access_token_secret_task, get_refresh_token_secret_task);
+
+    // Fetch the latest version of access token secret key
+    let access_token_secret = mem::replace(
+        get_access_token_secret_task_resp?
+            .parameters
+            .unwrap()
+            .last_mut()
+            .unwrap(),
+        Parameter::builder().build(),
+    );
+
+    // Fetch the latest version of refresh token secret key
+    let refresh_token_secret = mem::replace(
+        get_refresh_token_secret_task_resp?
+            .parameters
+            .unwrap()
+            .last_mut()
+            .unwrap(),
+        Parameter::builder().build(),
+    );
 
     let env = Env {
         dynamodb,
         ssm,
         access_token_secret: access_token_secret.value.unwrap(),
+        access_token_secret_version: access_token_secret
+            .name
+            .unwrap()
+            .strip_prefix(&format!("{}/v", auth_constants::ACCESS_TOKEN_PARAM_PATH))
+            .unwrap()
+            .parse()?,
         refresh_token_secret: refresh_token_secret.value.unwrap(),
+        refresh_token_secret_version: refresh_token_secret
+            .name
+            .unwrap()
+            .strip_prefix(&format!("{}/v", auth_constants::REFRESH_TOKEN_PARAM_PATH))
+            .unwrap()
+            .parse()?,
     };
 
     run(service_fn(
@@ -217,7 +256,7 @@ async fn handler(
     let refresh_token_jti = Uuid::new_v4().to_string();
 
     let refresh_token_exp = common::extend_current_timestamp()
-        .days(1u64)
+        .days(1)
         .call()
         .context(Location::caller())?;
 
@@ -238,6 +277,7 @@ async fn handler(
         &Header::new(Algorithm::HS512),
         &AuthRefreshToken {
             typ: RefreshTokenType::Refresh,
+            ver: env.refresh_token_secret_version,
             jti: refresh_token_jti.to_string(),
             sub: user_id,
             exp: refresh_token_exp,
@@ -251,9 +291,10 @@ async fn handler(
         &Header::new(Algorithm::HS512),
         &AuthAccessToken {
             typ: AccessTokenType::Access,
+            ver: env.access_token_secret_version,
             jti: access_token_jti,
             exp: common::extend_current_timestamp()
-                .minutes(5u64)
+                .minutes(5)
                 .call()
                 .context(Location::caller())?,
             sub: user_id,

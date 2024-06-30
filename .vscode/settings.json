@@ -4,11 +4,18 @@
     "**/.serverless": true
   },
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.check.extraArgs": ["--", "-A", "clippy::too_many_arguments"],
+  "rust-analyzer.check.extraArgs": [
+    "--",
+    "-A",
+    "clippy::too_many_arguments",
+    "-A",
+    "clippy::needless_lifetimes"
+  ],
   "rust-analyzer.checkOnSave": true,
   "rust-analyzer.linkedProjects": [
     "src/api/Cargo.toml",
     "src/auth-lib/Cargo.toml",
-    "src/funcs/Cargo.toml"
+    "src/funcs/Cargo.toml",
+    "src/sf/Cargo.toml"
   ]
 }

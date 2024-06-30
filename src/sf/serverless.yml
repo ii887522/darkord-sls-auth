@@ -1,4 +1,4 @@
-service: auth-funcs
+service: auth-sf
 frameworkVersion: "3"
 
 provider:
@@ -35,6 +35,15 @@ params:
     stagePrefix: stage_
     stageDashPrefix: stage-
 
+    # API key names
+    restApiKeyName: darkord-flutter-stage-rest-api-key
+    wsApiKeyName: darkord-flutter-stage-ws-api-key
+
+    # CloudFront distributions
+    cfDistributionId: E1P9RYVNZM3LAL
+    cfOriginRestApiDomainName: ns1o12mqe1.execute-api.us-east-1.amazonaws.com
+    cfOriginWsApiDomainName: nb521atnpd.execute-api.us-east-1.amazonaws.com
+
   prod:
     profile: darkord
     region: ap-southeast-1
@@ -44,6 +53,15 @@ params:
     logLevel: INFO
     stagePrefix: ""
     stageDashPrefix: ""
+
+    # API key names
+    restApiKeyName: darkord-flutter-rest-api-key
+    wsApiKeyName: darkord-flutter-ws-api-key
+
+    # CloudFront
+    cfDistributionId: E1L8FGDB1BRFWF
+    cfOriginRestApiDomainName: udz4iyqum3.execute-api.ap-southeast-1.amazonaws.com
+    cfOriginWsApiDomainName: f55d4hf4ak.execute-api.ap-southeast-1.amazonaws.com
 
 custom:
   deploymentBucket:
@@ -62,11 +80,40 @@ package:
     - "!**"
 
 functions:
-  authorize:
-    handler: authorize
+  sf-update-secrets:
+    handler: sf-update-secrets
     package:
       patterns:
-        - "authorize/**"
+        - "sf-update-secrets/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - apigateway:CreateApiKey
+        Resource:
+          - arn:aws:apigateway:${param:region}::/*
+      - Effect: Allow
+        Action:
+          - cloudfront:GetDistributionConfig
+          - cloudfront:UpdateDistribution
+        Resource:
+          - arn:aws:cloudfront::${aws:accountId}:distribution/${param:cfDistributionId}
+      - Effect: Allow
+        Action:
+          - ssm:PutParameter
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/*
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
+    environment:
+      REST_API_KEY_NAME: ${param:restApiKeyName}
+      WS_API_KEY_NAME: ${param:wsApiKeyName}
+      CF_DISTRIBUTION_ID: ${param:cfDistributionId}
+      CF_ORIGIN_REST_API_DOMAIN_NAME: ${param:cfOriginRestApiDomainName}
+      CF_ORIGIN_WS_API_DOMAIN_NAME: ${param:cfOriginWsApiDomainName}
+  sf-delete-old-secrets:
+    handler: sf-delete-old-secrets
+    package:
+      patterns:
+        - "sf-delete-old-secrets/**"
     iamRoleStatements:
       - Effect: Allow
         Action:

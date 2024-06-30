@@ -11,3 +11,7 @@ services:
     path: src/api
     dependsOn:
       - auth-db
+  auth-sf:
+    path: src/sf
+    dependsOn:
+      - auth-db

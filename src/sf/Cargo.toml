@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["sf-delete-old-secrets", "sf-update-secrets"]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.dev]
+split-debuginfo = "packed"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+split-debuginfo = "packed"
+strip = true

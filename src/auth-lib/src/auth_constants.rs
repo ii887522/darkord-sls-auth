@@ -4,7 +4,6 @@ use once_cell::sync::Lazy;
 use std::env;
 
 // SSM parameter paths
-pub const JWT_TOKEN_PARAM_PATH: &str = "/auth/api/token";
 pub const ACCESS_TOKEN_PARAM_PATH: &str = "/auth/api/token/access";
 pub const REFRESH_TOKEN_PARAM_PATH: &str = "/auth/api/token/refresh";
 pub const SESSION_TOKEN_PARAM_PATH: &str = "/auth/api/token/session";
@@ -72,4 +71,15 @@ pub const AUDIENCE_ACTIONS: &[Action] = &[
 ];
 
 // Validities in minutes
-pub const VERIFICATION_CODE_VALIDITY_IN_MINUTES: u64 = 5;
+pub const VERIFICATION_CODE_VALIDITY_IN_MINUTES: i64 = 5;
+
+// API Key names
+pub static REST_API_KEY_NAME: Lazy<String> = Lazy::new(|| env::var("REST_API_KEY_NAME").unwrap());
+pub static WS_API_KEY_NAME: Lazy<String> = Lazy::new(|| env::var("WS_API_KEY_NAME").unwrap());
+
+// CloudFront distributions
+pub static CF_DISTRIBUTION_ID: Lazy<String> = Lazy::new(|| env::var("CF_DISTRIBUTION_ID").unwrap());
+pub static CF_ORIGIN_REST_API_DOMAIN_NAME: Lazy<String> =
+    Lazy::new(|| env::var("CF_ORIGIN_REST_API_DOMAIN_NAME").unwrap());
+pub static CF_ORIGIN_WS_API_DOMAIN_NAME: Lazy<String> =
+    Lazy::new(|| env::var("CF_ORIGIN_WS_API_DOMAIN_NAME").unwrap());

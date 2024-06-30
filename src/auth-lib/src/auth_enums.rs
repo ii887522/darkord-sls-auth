@@ -31,7 +31,7 @@ impl Action {
         }
     }
 
-    pub const fn get_jwt_token_validity_in_minutes(&self) -> u64 {
+    pub const fn get_jwt_token_validity_in_minutes(&self) -> i64 {
         match self {
             Action::SignUp => 0,
             Action::VerifyAttr => 5,

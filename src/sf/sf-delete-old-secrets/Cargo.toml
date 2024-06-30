@@ -1,0 +1,26 @@
+[package]
+name = "sf-delete-old-secrets"
+edition = "2021"
+rust-version = "1.78"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = "1.0"
+auth-lib = { path = "../../auth-lib" }
+aws-config = "1.4"
+aws-sdk-dynamodb = "1.27"
+aws-sdk-ssm = "1.27"
+common = { path = "../../../../darkord-sls-common/src/common" }
+jsonwebtoken = { version = "9.3", default-features = false }
+lambda_runtime = "0.11.2"
+optarg2chain = "0.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.37", features = ["macros"] }
+
+[dependencies.aws_lambda_events]
+version = "0.15.1"
+default-features = false
+features = ["apigw"]

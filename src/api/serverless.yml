@@ -53,7 +53,7 @@ params:
     profile: darkord
     region: ap-southeast-1
     memorySize: 256
-    logRetentionInDays: 7
+    logRetentionInDays: 14
     disableRollback: false
     restApiId: udz4iyqum3
     restApiRootResourceId: sonnsq55fh

@@ -151,7 +151,7 @@ impl<'a> AuthAttemptDb<'a> {
         #[optarg_default] is_permanent: bool,
     ) -> Result<()> {
         let extend_by_in_minutes = if jti.is_empty() {
-            60u64
+            60
         } else {
             action.get_jwt_token_validity_in_minutes()
         };

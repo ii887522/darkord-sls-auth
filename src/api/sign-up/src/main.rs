@@ -7,6 +7,7 @@ use auth_lib::{
 };
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
+use aws_sdk_ssm::types::Parameter;
 use common::{
     self,
     common_serde::Request,
@@ -17,7 +18,7 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::panic::Location;
+use std::{mem, panic::Location};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -26,6 +27,7 @@ struct Env {
     dynamodb: aws_sdk_dynamodb::Client,
     ssm: aws_sdk_ssm::Client,
     session_token_secret: String,
+    session_token_secret_version: u32,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Validate)]
@@ -62,21 +64,30 @@ async fn main() -> Result<(), Error> {
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ssm = aws_sdk_ssm::Client::new(&config);
 
-    let session_token_secret = ssm
-        .get_parameter()
-        .name(auth_constants::SESSION_TOKEN_PARAM_PATH)
-        .with_decryption(true)
-        .send()
-        .await?
-        .parameter
-        .unwrap()
-        .value
-        .unwrap();
+    // Fetch the latest version of session token secret key
+    let session_token_secret = mem::replace(
+        ssm.get_parameters_by_path()
+            .path(auth_constants::SESSION_TOKEN_PARAM_PATH)
+            .with_decryption(true)
+            .send()
+            .await?
+            .parameters
+            .unwrap()
+            .last_mut()
+            .unwrap(),
+        Parameter::builder().build(),
+    );
 
     let env = Env {
         dynamodb,
         ssm,
-        session_token_secret,
+        session_token_secret: session_token_secret.value.unwrap(),
+        session_token_secret_version: session_token_secret
+            .name
+            .unwrap()
+            .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
+            .unwrap()
+            .parse()?,
     };
 
     run(service_fn(
@@ -202,6 +213,7 @@ async fn handler(
         &Header::new(Algorithm::HS512),
         &AuthSessionToken {
             typ: SessionTokenType::Session,
+            ver: env.session_token_secret_version,
             jti: Uuid::new_v4().to_string(),
             sub: user_id,
             exp: common::extend_current_timestamp()

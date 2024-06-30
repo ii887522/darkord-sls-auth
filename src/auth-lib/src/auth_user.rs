@@ -59,6 +59,9 @@ pub struct AuthUser {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub mfa_secret: String,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mfa_secret_key_version: Option<u32>,
+
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub verification_code: String,
 
@@ -102,6 +105,7 @@ impl AuthUser {
             extra,
             verified_attrs: HashSet::new(),
             mfa_secret: "".to_string(),
+            mfa_secret_key_version: None,
             verification_code,
             code_expired_at,
         }
@@ -323,32 +327,38 @@ impl<'a> AuthUserDb<'a> {
     }
 
     pub async fn set_mfa_secret(&'a self, user_id: u32, mfa_secret: &str) -> Result<()> {
-        let magic_crypt = new_magic_crypt!(
-            self.ssm
-                .unwrap()
-                .get_parameter()
-                .name(auth_constants::MFA_PARAM_PATH)
-                .with_decryption(true)
-                .send()
-                .await
-                .context(Location::caller())?
-                .parameter
-                .unwrap()
-                .value
-                .unwrap(),
-            256
-        );
+        // Fetch the latest version of MFA secret key
+        // todo: Consider cache the result in this lambda environment
+        let mfa_secret_key_params = self
+            .ssm
+            .unwrap()
+            .get_parameters_by_path()
+            .path(auth_constants::MFA_PARAM_PATH)
+            .with_decryption(true)
+            .send()
+            .await
+            .context(Location::caller())?
+            .parameters
+            .unwrap();
+        let mfa_secret_key_param = mfa_secret_key_params.last().unwrap();
 
         self.dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
             .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
             .key("sk", AttributeValue::S("User".to_string()))
-            .update_expression("SET mfa_secret = :ms")
+            .update_expression("SET mfa_secret = :ms, mfa_secret_key_version = :mskv")
             .condition_expression("attribute_exists(pk)")
             .expression_attribute_values(
                 ":ms",
-                AttributeValue::S(magic_crypt.encrypt_str_to_base64(mfa_secret)),
+                AttributeValue::S(
+                    new_magic_crypt!(mfa_secret_key_param.value.as_ref().unwrap(), 256)
+                        .encrypt_str_to_base64(mfa_secret),
+                ),
+            )
+            .expression_attribute_values(
+                ":mskv",
+                AttributeValue::N(mfa_secret_key_param.version.to_string()),
             )
             .send()
             .await
@@ -384,7 +394,7 @@ impl<'a> AuthUserDb<'a> {
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
             .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
             .key("sk", AttributeValue::S("User".to_string()))
-            .projection_expression("pk,mfa_secret")
+            .projection_expression("pk,mfa_secret,mfa_secret_key_version")
             .send()
             .await
             .context(Location::caller())?;
@@ -394,10 +404,15 @@ impl<'a> AuthUserDb<'a> {
 
             if !user.mfa_secret.is_empty() {
                 let magic_crypt = new_magic_crypt!(
+                    // todo: Consider cache the result in this lambda environment
                     self.ssm
                         .unwrap()
                         .get_parameter()
-                        .name(auth_constants::MFA_PARAM_PATH)
+                        .name(format!(
+                            "{name}/v{version}",
+                            name = auth_constants::MFA_PARAM_PATH,
+                            version = user.mfa_secret_key_version.unwrap_or(1)
+                        ))
                         .with_decryption(true)
                         .send()
                         .await
@@ -484,5 +499,40 @@ impl<'a> AuthUserDb<'a> {
             .context(Location::caller())?;
 
         Ok(())
+    }
+
+    pub async fn rotate_mfa_secret(&'a self, user_id: u32) -> Result<()> {
+        let mfa_secret = self
+            .get_mfa_secret(user_id)
+            .await
+            .context(Location::caller())?;
+
+        if mfa_secret.is_empty() {
+            return Ok(());
+        }
+
+        self.set_mfa_secret(user_id, &mfa_secret)
+            .await
+            .context(Location::caller())
+    }
+
+    pub async fn get_next_user_id(&'a self) -> Result<u32> {
+        let db_resp = self
+            .dynamodb
+            .get_item()
+            .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
+            .key("pk", AttributeValue::S("NextUserId".to_string()))
+            .key("sk", AttributeValue::S("User".to_string()))
+            .projection_expression("pk,next_user_id")
+            .send()
+            .await
+            .context(Location::caller())?;
+
+        if let Some(item) = db_resp.item {
+            let user: AuthUser = serde_dynamo::from_item(item).context(Location::caller())?;
+            return Ok(user.next_user_id.unwrap_or_default());
+        }
+
+        Ok(0)
     }
 }
