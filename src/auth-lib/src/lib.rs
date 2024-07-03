@@ -4,6 +4,7 @@ pub mod auth_enums;
 pub mod auth_error;
 pub mod auth_jwt;
 pub mod auth_rbac;
+pub mod auth_sf_models;
 pub mod auth_user;
 pub mod auth_user_context;
 pub mod auth_valid_token_pair;

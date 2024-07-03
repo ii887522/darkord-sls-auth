@@ -225,20 +225,24 @@ impl<'a> AuthUserDb<'a> {
             .context(Location::caller());
 
         if let Err(err) = db_resp {
-            let err = err
+            let mut err = err
                 .downcast::<SdkError<_>>()
                 .context(Location::caller())?
                 .into_service_error();
 
-            if let TransactionCanceledException(err) = err {
-                for cancellation_reason in err.cancellation_reasons.unwrap_or_default() {
-                    if cancellation_reason.code.unwrap_or_default() != "ConditionalCheckFailed" {
+            if let TransactionCanceledException(err) = &mut err {
+                for cancellation_reason in err.cancellation_reasons.as_mut().unwrap_or(&mut vec![])
+                {
+                    if cancellation_reason.code.as_ref().unwrap_or(&"".to_string())
+                        != "ConditionalCheckFailed"
+                    {
                         continue;
                     }
 
-                    let item: AuthUser =
-                        serde_dynamo::from_item(cancellation_reason.item.unwrap_or_default())
-                            .context(Location::caller())?;
+                    let item: AuthUser = serde_dynamo::from_item(
+                        cancellation_reason.item.take().unwrap_or_default(),
+                    )
+                    .context(Location::caller())?;
 
                     if item.pk.starts_with("Username#") {
                         let err = CommonError {
@@ -260,9 +264,9 @@ impl<'a> AuthUserDb<'a> {
 
                     panic!("Unhandled pk: {}", item.pk);
                 }
-            } else {
-                return Err(Error::from(err).context(Location::caller()));
             }
+
+            return Err(Error::from(err).context(Location::caller()));
         }
 
         Ok(user_id)
@@ -379,12 +383,9 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller())?;
 
-        if let Some(item) = db_resp.item {
-            let user: AuthUser = serde_dynamo::from_item(item).context(Location::caller())?;
-            return Ok(Some(user));
-        }
-
-        Ok(None)
+        db_resp.item.map_or(Ok(None), |item| {
+            serde_dynamo::from_item(item).context(Location::caller())
+        })
     }
 
     pub async fn get_mfa_secret(&'a self, user_id: u32) -> Result<String> {
@@ -447,12 +448,11 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller())?;
 
-        if let Some(item) = db_resp.item {
-            let user: AuthUser = serde_dynamo::from_item(item).context(Location::caller())?;
-            return Ok(user.user_id);
-        }
-
-        Ok(None)
+        db_resp.item.map_or(Ok(None), |item| {
+            serde_dynamo::from_item(item)
+                .context(Location::caller())
+                .map(|user: AuthUser| user.user_id)
+        })
     }
 
     pub async fn set_verification_code(
@@ -528,11 +528,10 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller())?;
 
-        if let Some(item) = db_resp.item {
-            let user: AuthUser = serde_dynamo::from_item(item).context(Location::caller())?;
-            return Ok(user.next_user_id.unwrap_or_default());
-        }
-
-        Ok(0)
+        db_resp.item.map_or(Ok(0), |item| {
+            serde_dynamo::from_item(item)
+                .context(Location::caller())
+                .map(|user: AuthUser| user.next_user_id.unwrap_or_default())
+        })
     }
 }

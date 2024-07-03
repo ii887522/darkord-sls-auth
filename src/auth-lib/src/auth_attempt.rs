@@ -107,11 +107,9 @@ impl<'a> AuthAttemptDb<'a> {
             .await
             .context(Location::caller())?;
 
-        if let Some(item) = db_resp.item {
-            Ok(serde_dynamo::from_item(item).context(Location::caller())?)
-        } else {
-            Ok(None)
-        }
+        db_resp.item.map_or(Ok(None), |item| {
+            serde_dynamo::from_item(item).context(Location::caller())
+        })
     }
 
     #[optarg_method(AuthAttemptDbIsBlockedBuilder, send)]

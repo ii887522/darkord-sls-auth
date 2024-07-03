@@ -26,7 +26,7 @@ use lambda_runtime::{
     Context, Error, LambdaEvent,
 };
 use optarg2chain::optarg_fn;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::{collections::HashSet, panic::Location};
 
 #[derive(Debug)]
@@ -75,7 +75,7 @@ async fn main() -> Result<(), Error> {
                 }
                 Err(err) => {
                     error!("{err:?}");
-                    Ok(Value::String("unauthorized".to_string()))
+                    Ok(json!("unauthorized"))
                 }
             },
         }
