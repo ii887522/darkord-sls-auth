@@ -9,7 +9,7 @@ use common::{
 };
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::panic::Location;
 
 #[derive(Debug)]
@@ -89,7 +89,7 @@ async fn handler(
 
     let api_resp = ApiResponse {
         code: 2000,
-        payload: serde_json::to_value(HandlerResponse {}).context(Location::caller())?,
+        payload: json!(HandlerResponse {}),
         request_id: &context.request_id,
         ..Default::default()
     };

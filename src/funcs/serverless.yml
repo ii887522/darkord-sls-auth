@@ -72,7 +72,9 @@ functions:
         Action:
           - ssm:GetParametersByPath
         Resource:
-          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/access
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/refresh
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
       - Effect: Allow
         Action:
           - dynamodb:GetItem

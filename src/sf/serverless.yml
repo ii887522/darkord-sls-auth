@@ -99,10 +99,20 @@ functions:
           - arn:aws:cloudfront::${aws:accountId}:distribution/${param:cfDistributionId}
       - Effect: Allow
         Action:
+          - ssm:GetParametersByPath
           - ssm:PutParameter
+          - ssm:GetParameter
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/*
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa/*
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
     environment:
       REST_API_KEY_NAME: ${param:restApiKeyName}
       WS_API_KEY_NAME: ${param:wsApiKeyName}
@@ -117,15 +127,31 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParametersByPath
+          - apigateway:CreateApiKey
         Resource:
-          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token
+          - arn:aws:apigateway:${param:region}::/*
+      - Effect: Allow
+        Action:
+          - cloudfront:GetDistributionConfig
+          - cloudfront:UpdateDistribution
+        Resource:
+          - arn:aws:cloudfront::${aws:accountId}:distribution/${param:cfDistributionId}
+      - Effect: Allow
+        Action:
+          - ssm:GetParametersByPath
+          - ssm:PutParameter
+          - ssm:GetParameter
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/*
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa/*
       - Effect: Allow
         Action:
           - dynamodb:GetItem
+          - dynamodb:PutItem
+          - dynamodb:UpdateItem
         Resource:
-          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_valid_token_pair
-          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_rbac
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work

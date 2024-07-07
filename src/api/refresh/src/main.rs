@@ -15,7 +15,7 @@ use common::{
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{mem, panic::Location};
 use uuid::Uuid;
 
@@ -145,8 +145,7 @@ async fn handler(
 
     let api_resp = ApiResponse {
         code: 2000,
-        payload: serde_json::to_value(HandlerResponse { access_token })
-            .context(Location::caller())?,
+        payload: json!(HandlerResponse { access_token }),
         request_id: &context.request_id,
         ..Default::default()
     };

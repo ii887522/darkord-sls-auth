@@ -176,6 +176,9 @@ resources:
           PointInTimeRecoveryEnabled: ${param:pointInTimeRecovery}
         TableClass: STANDARD
         TableName: ${param:stagePrefix}auth_user
+        TimeToLiveSpecification:
+          AttributeName: expired_at
+          Enabled: true
     authValidTokenPairTable:
       Type: AWS::DynamoDB::Table
       Properties:

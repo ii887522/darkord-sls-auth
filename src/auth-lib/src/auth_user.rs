@@ -6,11 +6,12 @@ use anyhow::{bail, Context, Error, Result};
 use aws_sdk_dynamodb::{
     error::SdkError,
     operation::transact_write_items::TransactWriteItemsError::TransactionCanceledException,
+    operation::update_item::UpdateItemError::ConditionalCheckFailedException,
     types::{
         AttributeValue, Put, ReturnValue, ReturnValuesOnConditionCheckFailure, TransactWriteItem,
     },
 };
-use common::{self, CommonError};
+use common::CommonError;
 use magic_crypt::{new_magic_crypt, MagicCryptTrait};
 use optarg2chain::optarg_impl;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,30 @@ enum Sk {
     User,
 }
 
+#[derive(
+    Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
+)]
+enum DetailSk {
+    #[default]
+    Detail,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
+)]
+enum VerificationSk {
+    #[default]
+    Verification,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
+)]
+enum MfaSk {
+    #[default]
+    Mfa,
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct AuthUser {
     pk: String,
@@ -35,38 +60,14 @@ pub struct AuthUser {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<u32>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_user_id: Option<u32>,
-
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub username: String,
 
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub email_addr: String,
 
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub password: String,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub locale: Option<Locale>,
-
-    #[serde(default, skip_serializing_if = "Map::is_empty")]
-    pub extra: Map<String, Value>,
-
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub verified_attrs: HashSet<UserAttr>,
-
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub mfa_secret: String,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mfa_secret_key_version: Option<u32>,
-
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub verification_code: String,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code_expired_at: Option<u64>,
+    pub next_user_id: Option<u32>,
 }
 
 #[optarg_impl]
@@ -74,19 +75,12 @@ impl AuthUser {
     #[optarg_method(AuthUserNewBuilder, call)]
     fn new(
         #[optarg_default] user_id: Option<u32>,
-        #[optarg_default] next_user_id: Option<u32>,
         #[optarg_default] username: String,
         #[optarg_default] email_addr: String,
-        #[optarg_default] password: String,
-        #[optarg_default] locale: Option<Locale>,
-        #[optarg_default] extra: Map<String, Value>,
-        #[optarg_default] verification_code: String,
-        #[optarg_default] code_expired_at: Option<u64>,
+        #[optarg_default] next_user_id: Option<u32>,
     ) -> Self {
         Self {
-            pk: if locale.is_some() {
-                format!("UserId#{user_id}", user_id = user_id.unwrap())
-            } else if !username.is_empty() {
+            pk: if !username.is_empty() {
                 format!("Username#{username}")
             } else if !email_addr.is_empty() {
                 format!("EmailAddr#{email_addr}")
@@ -97,22 +91,105 @@ impl AuthUser {
             },
             sk: Sk::User,
             user_id,
+            username,
+            email_addr,
             next_user_id,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct AuthUserDetail {
+    pk: String,
+
+    #[serde(default)]
+    sk: DetailSk,
+
+    pub user_id: u32,
+    pub username: String,
+    pub email_addr: String,
+    pub password: String,
+    pub locale: Locale,
+
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Map<String, Value>,
+
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub verified_attrs: HashSet<UserAttr>,
+}
+
+impl AuthUserDetail {
+    fn new(
+        user_id: u32,
+        username: String,
+        email_addr: String,
+        password: String,
+        locale: Locale,
+        extra: Map<String, Value>,
+    ) -> Self {
+        Self {
+            pk: format!("User#{user_id}"),
+            sk: DetailSk::Detail,
+            user_id,
             username,
             email_addr,
             password,
             locale,
             extra,
             verified_attrs: HashSet::new(),
-            mfa_secret: "".to_string(),
-            mfa_secret_key_version: None,
-            verification_code,
-            code_expired_at,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct AuthUserVerification {
+    pk: String,
+
+    #[serde(default)]
+    sk: VerificationSk,
+
+    pub user_id: u32,
+    pub verification_code: String,
+    pub expired_at: u64,
+}
+
+impl AuthUserVerification {
+    fn new(user_id: u32, verification_code: String, expired_at: u64) -> Self {
+        Self {
+            pk: format!("User#{user_id}"),
+            sk: VerificationSk::Verification,
+            user_id,
+            verification_code,
+            expired_at,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct AuthUserMfa {
+    pk: String,
+
+    #[serde(default)]
+    sk: MfaSk,
+
+    pub user_id: u32,
+    pub secret: String,
+    pub version: u32,
+}
+
+impl AuthUserMfa {
+    fn new(user_id: u32, secret: String, version: u32) -> Self {
+        Self {
+            pk: format!("User#{user_id}"),
+            sk: MfaSk::Mfa,
+            user_id,
+            secret,
+            version,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct AuthUserDb<'a> {
     pub dynamodb: &'a aws_sdk_dynamodb::Client,
     pub ssm: Option<&'a aws_sdk_ssm::Client>,
@@ -123,7 +200,7 @@ impl<'a> AuthUserDb<'a> {
         &'a self,
         username: String,
         email_addr: String,
-        password: &str,
+        password: String,
         locale: Locale,
         extra: Map<String, Value>,
         verification_code: String,
@@ -138,7 +215,7 @@ impl<'a> AuthUserDb<'a> {
             .return_values(ReturnValue::AllOld)
             .update_expression("SET next_user_id = next_user_id + :incr")
             .condition_expression("attribute_exists(pk)")
-            .expression_attribute_values(":incr", AttributeValue::N("1".to_string()))
+            .expression_attribute_values(":incr", AttributeValue::N(1.to_string()))
             .send()
             .await
             .context(Location::caller())?;
@@ -148,16 +225,17 @@ impl<'a> AuthUserDb<'a> {
             .next_user_id
             .unwrap();
 
-        let pk_user_id_user = AuthUser::new()
-            .user_id(user_id)
-            .username(username.to_string())
-            .email_addr(email_addr.to_string())
-            .password(common::hash_secret(password))
-            .locale(locale)
-            .extra(extra)
-            .verification_code(verification_code)
-            .code_expired_at(code_expired_at)
-            .call();
+        let user_detail = AuthUserDetail::new(
+            user_id,
+            username.to_string(),
+            email_addr.to_string(),
+            common::hash_secret(&password),
+            locale,
+            extra,
+        );
+
+        let user_verification =
+            AuthUserVerification::new(user_id, verification_code, code_expired_at);
 
         let pk_username_user = AuthUser::new().user_id(user_id).username(username).call();
 
@@ -175,7 +253,21 @@ impl<'a> AuthUserDb<'a> {
                         Put::builder()
                             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
                             .set_item(Some(
-                                serde_dynamo::to_item(pk_user_id_user)
+                                serde_dynamo::to_item(user_detail).context(Location::caller())?,
+                            ))
+                            .condition_expression("attribute_not_exists(pk)")
+                            .build()
+                            .context(Location::caller())?,
+                    )
+                    .build(),
+            )
+            .transact_items(
+                TransactWriteItem::builder()
+                    .put(
+                        Put::builder()
+                            .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
+                            .set_item(Some(
+                                serde_dynamo::to_item(user_verification)
                                     .context(Location::caller())?,
                             ))
                             .condition_expression("attribute_not_exists(pk)")
@@ -233,18 +325,22 @@ impl<'a> AuthUserDb<'a> {
             if let TransactionCanceledException(err) = &mut err {
                 for cancellation_reason in err.cancellation_reasons.as_mut().unwrap_or(&mut vec![])
                 {
-                    if cancellation_reason.code.as_ref().unwrap_or(&"".to_string())
-                        != "ConditionalCheckFailed"
+                    let Some(reason_code) = cancellation_reason.code.as_ref() else {
+                        continue;
+                    };
+
+                    if reason_code != "ConditionalCheckFailed"
+                        && reason_code != "TransactionConflict"
                     {
                         continue;
                     }
 
-                    let item: AuthUser = serde_dynamo::from_item(
+                    let user: AuthUser = serde_dynamo::from_item(
                         cancellation_reason.item.take().unwrap_or_default(),
                     )
                     .context(Location::caller())?;
 
-                    if item.pk.starts_with("Username#") {
+                    if user.pk.starts_with("Username#") {
                         let err = CommonError {
                             code: 4090,
                             message: "Username already exists",
@@ -253,7 +349,7 @@ impl<'a> AuthUserDb<'a> {
                         bail!(err);
                     }
 
-                    if item.pk.starts_with("EmailAddr#") {
+                    if user.pk.starts_with("EmailAddr#") {
                         let err = CommonError {
                             code: 4091,
                             message: "Email address already exists",
@@ -262,7 +358,7 @@ impl<'a> AuthUserDb<'a> {
                         bail!(err);
                     }
 
-                    panic!("Unhandled pk: {}", item.pk);
+                    panic!("Unhandled pk: {}", user.pk);
                 }
             }
 
@@ -277,22 +373,23 @@ impl<'a> AuthUserDb<'a> {
             .dynamodb
             .get_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
-            .key("sk", AttributeValue::S("User".to_string()))
-            .projection_expression("pk,verification_code,code_expired_at")
+            .key("pk", AttributeValue::S(format!("User#{user_id}")))
+            .key("sk", AttributeValue::S("Verification".to_string()))
+            .projection_expression("pk,user_id,verification_code,expired_at")
             .send()
             .await
             .context(Location::caller())?;
 
         if let Some(item) = db_resp.item {
-            let user: AuthUser = serde_dynamo::from_item(item).context(Location::caller())?;
+            let user_verification: AuthUserVerification =
+                serde_dynamo::from_item(item).context(Location::caller())?;
 
             if common::get_current_timestamp()
                 .call()
                 .context(Location::caller())?
-                < user.code_expired_at.unwrap_or_default()
+                < user_verification.expired_at
             {
-                return Ok(user.verification_code);
+                return Ok(user_verification.verification_code);
             }
         }
 
@@ -307,8 +404,8 @@ impl<'a> AuthUserDb<'a> {
         self.dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
-            .key("sk", AttributeValue::S("User".to_string()))
+            .key("pk", AttributeValue::S(format!("User#{user_id}")))
+            .key("sk", AttributeValue::S("Detail".to_string()))
             .update_expression("ADD verified_attrs :va")
             .condition_expression("attribute_exists(pk)")
             .expression_attribute_values(
@@ -344,41 +441,70 @@ impl<'a> AuthUserDb<'a> {
             .context(Location::caller())?
             .parameters
             .unwrap();
+
         let mfa_secret_key_param = mfa_secret_key_params.last().unwrap();
 
-        self.dynamodb
+        let encrypted_mfa_secret =
+            new_magic_crypt!(mfa_secret_key_param.value.as_ref().unwrap(), 256)
+                .encrypt_str_to_base64(mfa_secret);
+
+        let mfa_secret_version = mfa_secret_key_param
+            .name
+            .as_ref()
+            .unwrap()
+            .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
+            .unwrap();
+
+        let db_resp = self
+            .dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
-            .key("sk", AttributeValue::S("User".to_string()))
-            .update_expression("SET mfa_secret = :ms, mfa_secret_key_version = :mskv")
+            .key("pk", AttributeValue::S(format!("User#{user_id}")))
+            .key("sk", AttributeValue::S("Mfa".to_string()))
+            .update_expression("SET secret = :s, version = :v")
             .condition_expression("attribute_exists(pk)")
-            .expression_attribute_values(
-                ":ms",
-                AttributeValue::S(
-                    new_magic_crypt!(mfa_secret_key_param.value.as_ref().unwrap(), 256)
-                        .encrypt_str_to_base64(mfa_secret),
-                ),
-            )
-            .expression_attribute_values(
-                ":mskv",
-                AttributeValue::N(mfa_secret_key_param.version.to_string()),
-            )
+            .expression_attribute_values(":s", AttributeValue::S(encrypted_mfa_secret.to_string()))
+            .expression_attribute_values(":v", AttributeValue::N(mfa_secret_version.to_string()))
             .send()
             .await
-            .context(Location::caller())?;
+            .context(Location::caller());
+
+        if let Err(err) = db_resp {
+            let err = err
+                .downcast::<SdkError<_>>()
+                .context(Location::caller())?
+                .into_service_error();
+
+            if let ConditionalCheckFailedException(_) = err {
+                let user_mfa =
+                    AuthUserMfa::new(user_id, encrypted_mfa_secret, mfa_secret_version.parse()?);
+
+                self.dynamodb
+                    .put_item()
+                    .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
+                    .set_item(Some(
+                        serde_dynamo::to_item(user_mfa).context(Location::caller())?,
+                    ))
+                    .condition_expression("attribute_not_exists(pk)")
+                    .send()
+                    .await
+                    .context(Location::caller())?;
+            } else {
+                return Err(Error::from(err).context(Location::caller()));
+            }
+        }
 
         Ok(())
     }
 
-    pub async fn get_item(&'a self, user_id: u32) -> Result<Option<AuthUser>> {
+    pub async fn get_detail(&'a self, user_id: u32) -> Result<Option<AuthUserDetail>> {
         let db_resp = self
             .dynamodb
             .get_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
-            .key("sk", AttributeValue::S("User".to_string()))
-            .projection_expression("pk,username,email_addr,password,verified_attrs")
+            .key("pk", AttributeValue::S(format!("User#{user_id}")))
+            .key("sk", AttributeValue::S("Detail".to_string()))
+            .projection_expression("pk,user_id,username,email_addr,password,locale,verified_attrs")
             .send()
             .await
             .context(Location::caller())?;
@@ -393,44 +519,42 @@ impl<'a> AuthUserDb<'a> {
             .dynamodb
             .get_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
-            .key("sk", AttributeValue::S("User".to_string()))
-            .projection_expression("pk,mfa_secret,mfa_secret_key_version")
+            .key("pk", AttributeValue::S(format!("User#{user_id}")))
+            .key("sk", AttributeValue::S("Mfa".to_string()))
+            .projection_expression("pk,user_id,secret,version")
             .send()
             .await
             .context(Location::caller())?;
 
         if let Some(item) = db_resp.item {
-            let user: AuthUser = serde_dynamo::from_item(item).context(Location::caller())?;
+            let user_mfa: AuthUserMfa = serde_dynamo::from_item(item).context(Location::caller())?;
 
-            if !user.mfa_secret.is_empty() {
-                let magic_crypt = new_magic_crypt!(
-                    // todo: Consider cache the result in this lambda environment
-                    self.ssm
-                        .unwrap()
-                        .get_parameter()
-                        .name(format!(
-                            "{name}/v{version}",
-                            name = auth_constants::MFA_PARAM_PATH,
-                            version = user.mfa_secret_key_version.unwrap_or(1)
-                        ))
-                        .with_decryption(true)
-                        .send()
-                        .await
-                        .context(Location::caller())?
-                        .parameter
-                        .unwrap()
-                        .value
-                        .unwrap(),
-                    256
-                );
+            let magic_crypt = new_magic_crypt!(
+                // todo: Consider cache the result in this lambda environment
+                self.ssm
+                    .unwrap()
+                    .get_parameter()
+                    .name(format!(
+                        "{name}/v{version}",
+                        name = auth_constants::MFA_PARAM_PATH,
+                        version = user_mfa.version
+                    ))
+                    .with_decryption(true)
+                    .send()
+                    .await
+                    .context(Location::caller())?
+                    .parameter
+                    .unwrap()
+                    .value
+                    .unwrap(),
+                256
+            );
 
-                let mfa_secret = magic_crypt
-                    .decrypt_base64_to_string(user.mfa_secret)
-                    .context(Location::caller())?;
+            let mfa_secret = magic_crypt
+                .decrypt_base64_to_string(user_mfa.secret)
+                .context(Location::caller())?;
 
-                return Ok(mfa_secret);
-            }
+            return Ok(mfa_secret);
         }
 
         Ok("".to_string())
@@ -460,27 +584,49 @@ impl<'a> AuthUserDb<'a> {
         user_id: u32,
         verification_code: String,
     ) -> Result<()> {
-        self.dynamodb
+        let expired_at = common::extend_current_timestamp()
+            .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
+            .call()
+            .context(Location::caller())?;
+
+        let db_resp = self
+            .dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
-            .key("sk", AttributeValue::S("User".to_string()))
-            .update_expression("SET verification_code = :vc, code_expired_at = :cea")
+            .key("pk", AttributeValue::S(format!("User#{user_id}")))
+            .key("sk", AttributeValue::S("Verification".to_string()))
+            .update_expression("SET verification_code = :vc, expired_at = :ea")
             .condition_expression("attribute_exists(pk)")
-            .expression_attribute_values(":vc", AttributeValue::S(verification_code))
-            .expression_attribute_values(
-                ":cea",
-                AttributeValue::N(
-                    common::extend_current_timestamp()
-                        .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
-                        .call()
-                        .context(Location::caller())?
-                        .to_string(),
-                ),
-            )
+            .expression_attribute_values(":vc", AttributeValue::S(verification_code.to_string()))
+            .expression_attribute_values(":ea", AttributeValue::N(expired_at.to_string()))
             .send()
             .await
-            .context(Location::caller())?;
+            .context(Location::caller());
+
+        if let Err(err) = db_resp {
+            let err = err
+                .downcast::<SdkError<_>>()
+                .context(Location::caller())?
+                .into_service_error();
+
+            if let ConditionalCheckFailedException(_) = err {
+                let user_verification =
+                    AuthUserVerification::new(user_id, verification_code, expired_at);
+
+                self.dynamodb
+                    .put_item()
+                    .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
+                    .set_item(Some(
+                        serde_dynamo::to_item(user_verification).context(Location::caller())?,
+                    ))
+                    .condition_expression("attribute_not_exists(pk)")
+                    .send()
+                    .await
+                    .context(Location::caller())?;
+            } else {
+                return Err(Error::from(err).context(Location::caller()));
+            }
+        }
 
         Ok(())
     }
@@ -489,8 +635,8 @@ impl<'a> AuthUserDb<'a> {
         self.dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("UserId#{user_id}")))
-            .key("sk", AttributeValue::S("User".to_string()))
+            .key("pk", AttributeValue::S(format!("User#{user_id}")))
+            .key("sk", AttributeValue::S("Detail".to_string()))
             .update_expression("SET password = :p")
             .condition_expression("attribute_exists(pk)")
             .expression_attribute_values(":p", AttributeValue::S(common::hash_secret(password)))

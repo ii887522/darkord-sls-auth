@@ -96,7 +96,7 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - ssm:GetParametersByPath
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
       - Effect: Allow
@@ -127,7 +127,7 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - ssm:GetParametersByPath
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
       - Effect: Allow
@@ -161,7 +161,7 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - ssm:GetParametersByPath
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
       - Effect: Allow
@@ -174,6 +174,7 @@ functions:
       - Effect: Allow
         Action:
           - dynamodb:GetItem
+          - dynamodb:PutItem
           - dynamodb:UpdateItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
@@ -196,7 +197,7 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - ssm:GetParametersByPath
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
       - Effect: Allow
@@ -228,12 +229,13 @@ functions:
         Action:
           - ssm:GetParametersByPath
         Resource:
-          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/access
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/refresh
       - Effect: Allow
         Action:
           - ssm:GetParameter
         Resource:
-          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa/*
       - Effect: Allow
         Action:
           - dynamodb:GetItem
@@ -269,7 +271,7 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - ssm:GetParametersByPath
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/access
       - Effect: Allow
@@ -312,12 +314,13 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - ssm:GetParameter
+          - ssm:GetParametersByPath
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
       - Effect: Allow
         Action:
           - dynamodb:GetItem
+          - dynamodb:PutItem
           - dynamodb:UpdateItem
         Resource:
           - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user

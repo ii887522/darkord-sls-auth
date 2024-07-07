@@ -77,7 +77,7 @@ pub const VERIFICATION_CODE_VALIDITY_IN_MINUTES: i64 = 5;
 pub static REST_API_KEY_NAME: Lazy<String> = Lazy::new(|| env::var("REST_API_KEY_NAME").unwrap());
 pub static WS_API_KEY_NAME: Lazy<String> = Lazy::new(|| env::var("WS_API_KEY_NAME").unwrap());
 
-// CloudFront distributions
+// CloudFront distributions configurations
 pub static CF_DISTRIBUTION_ID: Lazy<String> = Lazy::new(|| env::var("CF_DISTRIBUTION_ID").unwrap());
 pub static CF_ORIGIN_REST_API_DOMAIN_NAME: Lazy<String> =
     Lazy::new(|| env::var("CF_ORIGIN_REST_API_DOMAIN_NAME").unwrap());

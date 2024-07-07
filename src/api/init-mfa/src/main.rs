@@ -8,7 +8,7 @@ use common::{
 };
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::panic::Location;
 use totp_rs::Secret;
 
@@ -109,7 +109,7 @@ async fn handler(
         .attempt(Action::InitMfa.get_max_attempt())
         .send();
 
-    let get_user_task = user_db.get_item(user_id);
+    let get_user_detail_task = user_db.get_detail(user_id);
 
     // Generate an MFA secret for this user
     let mfa_secret = Secret::default().to_encoded().to_string();
@@ -118,16 +118,16 @@ async fn handler(
     let save_task = user_db.set_mfa_secret(user_id, &mfa_secret);
 
     // Kickstart the DB related tasks
-    let (revoke_task_resp, get_user_task_resp, save_task_resp) =
-        tokio::join!(revoke_task, get_user_task, save_task);
+    let (revoke_task_resp, get_user_detail_task_resp, save_task_resp) =
+        tokio::join!(revoke_task, get_user_detail_task, save_task);
     revoke_task_resp.context(Location::caller())?;
-    let user = get_user_task_resp.context(Location::caller())?;
+    let user_detail = get_user_detail_task_resp.context(Location::caller())?;
     save_task_resp.context(Location::caller())?;
 
     // Generate an MFA provisioning URI for the user to register the MFA into their device
     let mfa_provisioning_uri = format!(
         "otpauth://totp/Darkord:{email_addr}?secret={mfa_secret}&issuer=Darkord",
-        email_addr = user.unwrap().email_addr
+        email_addr = user_detail.unwrap().email_addr
     );
 
     let resp = HandlerResponse {
@@ -136,7 +136,7 @@ async fn handler(
 
     let api_resp = ApiResponse {
         code: 2000,
-        payload: serde_json::to_value(resp).context(Location::caller())?,
+        payload: json!(resp),
         request_id: &context.request_id,
         ..Default::default()
     };

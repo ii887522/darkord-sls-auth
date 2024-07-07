@@ -1,40 +1,22 @@
-use anyhow::{bail, Context as _, Result};
-use auth_lib::{
-    auth_constants,
-    auth_enums::{Action, JwtToken},
-    auth_jwt::{AuthAccessToken, AuthRefreshToken, AuthSessionToken},
-    AuthError, AuthRbacDb, AuthUserContext, AuthValidTokenPairDb,
-};
+use advanced_random_string::{charset, random_string};
+use anyhow::{Context as _, Result};
+use auth_lib::{auth_constants, auth_sf_models::UpdateSecretsResponse, AuthUserDb};
 use aws_config::BehaviorVersion;
-use aws_lambda_events::{
-    apigw::{
-        ApiGatewayCustomAuthorizerPolicy, ApiGatewayCustomAuthorizerRequest,
-        ApiGatewayCustomAuthorizerRequestTypeRequest, ApiGatewayCustomAuthorizerResponse,
-    },
-    http::HeaderValue,
-    iam::{IamPolicyEffect, IamPolicyStatement},
-};
+use aws_sdk_ssm::types::ParameterType;
 use common::{
     self,
     common_tracing::{self, Logger},
-    method_arn::MethodArn,
 };
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use lambda_runtime::{
-    run, service_fn,
-    tracing::{error, info},
-    Context, Error, LambdaEvent,
-};
-use optarg2chain::optarg_fn;
-use serde_json::{json, Map, Value};
-use std::{collections::HashSet, panic::Location};
+use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
+use serde_json::{json, Value};
+use std::{collections::HashMap, panic::Location};
 
 #[derive(Debug)]
 struct Env {
+    api_gateway: aws_sdk_apigateway::Client,
+    cloudfront: aws_sdk_cloudfront::Client,
     dynamodb: aws_sdk_dynamodb::Client,
-    access_token_secret: String,
-    refresh_token_secret: String,
-    session_token_secret: String,
+    ssm: aws_sdk_ssm::Client,
 }
 
 #[tokio::main]
@@ -42,25 +24,16 @@ async fn main() -> Result<(), Error> {
     common_tracing::init();
 
     let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    let api_gateway = aws_sdk_apigateway::Client::new(&config);
+    let cloudfront = aws_sdk_cloudfront::Client::new(&config);
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ssm = aws_sdk_ssm::Client::new(&config);
 
-    let [access_token_secret, refresh_token_secret, session_token_secret] = ssm
-        .get_parameters_by_path()
-        .path(auth_constants::JWT_TOKEN_PARAM_PATH)
-        .with_decryption(true)
-        .send()
-        .await?
-        .parameters
-        .unwrap()
-        .try_into()
-        .unwrap();
-
     let env = Env {
+        api_gateway,
+        cloudfront,
         dynamodb,
-        access_token_secret: access_token_secret.value.unwrap(),
-        refresh_token_secret: refresh_token_secret.value.unwrap(),
-        session_token_secret: session_token_secret.value.unwrap(),
+        ssm,
     };
 
     run(service_fn(|event: LambdaEvent<Value>| async {
@@ -68,298 +41,339 @@ async fn main() -> Result<(), Error> {
 
         match handler(event, &context, &env).await {
             Ok(resp) => Ok::<Value, Error>(resp),
-            Err(err) => match err.downcast::<AuthError>() {
-                Ok(err @ AuthError::Unauthorized) => {
-                    info!("{err:?}");
-                    Err("Unauthorized".into())
-                }
-                Err(err) => {
-                    error!("{err:?}");
-                    Ok(json!("unauthorized"))
-                }
-            },
+            Err(err) => {
+                error!("{err:?}");
+                Err(err.into())
+            }
         }
     }))
     .await
 }
 
-async fn handler(event: Value, _context: &Context, env: &Env) -> Result<Value> {
-    let (auth_token, method_arn) =
-        match event.as_object().context(Location::caller())?["type"].as_str() {
-            Some("TOKEN") => {
-                let mut event: ApiGatewayCustomAuthorizerRequest =
-                    serde_json::from_value(event).context(Location::caller())?;
+async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value> {
+    event.log().context(Location::caller())?;
+    let event = event.as_object_mut().unwrap();
 
-                event.log().context(Location::caller())?;
+    let is_continue = event
+        .remove("is_continue")
+        .unwrap_or_default()
+        .as_bool()
+        .unwrap_or_default();
 
-                (
-                    event.authorization_token.unwrap_or_default(),
-                    event.method_arn.unwrap_or_default(),
-                )
-            }
-            Some("REQUEST") => {
-                let mut event: ApiGatewayCustomAuthorizerRequestTypeRequest =
-                    serde_json::from_value(event).context(Location::caller())?;
-
-                event.log().context(Location::caller())?;
-
-                (
-                    event
-                        .headers
-                        .get("Authorization")
-                        .unwrap_or(&HeaderValue::from_static(""))
-                        .to_str()
-                        .unwrap_or_default()
-                        .to_string(),
-                    event.method_arn.unwrap_or_default(),
-                )
-            }
-            _ => ("".to_string(), "".to_string()),
-        };
-
-    let resp = match decode(&auth_token, env) {
-        Ok(JwtToken::Access(access_token)) => {
-            auth_access_token(access_token, &method_arn, env).await?
-        }
-        Ok(JwtToken::Refresh(refresh_token)) => {
-            auth_refresh_token(refresh_token, &method_arn, env).await?
-        }
-        Ok(JwtToken::Session(session_token)) => {
-            auth_session_token(session_token, &method_arn).await
-        }
-        Err(err) => {
-            let err = err
-                .downcast::<jsonwebtoken::errors::Error>()
-                .context(Location::caller())?;
-
-            match err.kind() {
-                jsonwebtoken::errors::ErrorKind::InvalidToken
-                | jsonwebtoken::errors::ErrorKind::InvalidSignature
-                | jsonwebtoken::errors::ErrorKind::InvalidAlgorithmName
-                | jsonwebtoken::errors::ErrorKind::InvalidKeyFormat
-                | jsonwebtoken::errors::ErrorKind::MissingRequiredClaim(_)
-                | jsonwebtoken::errors::ErrorKind::ExpiredSignature
-                | jsonwebtoken::errors::ErrorKind::InvalidAudience
-                | jsonwebtoken::errors::ErrorKind::InvalidAlgorithm
-                | jsonwebtoken::errors::ErrorKind::MissingAlgorithm
-                | jsonwebtoken::errors::ErrorKind::Json(_)
-                | jsonwebtoken::errors::ErrorKind::Utf8(_) => {
-                    info!("{err:?}");
-                    bail!(AuthError::Unauthorized);
-                }
-                _ => bail!(err),
-            }
-        }
-    };
-
-    serde_json::to_value(resp).context(Location::caller())
-}
-
-fn decode(jwt_token: &str, env: &Env) -> Result<JwtToken> {
-    let mut disabled_validation = Validation::new(Algorithm::HS512);
-    disabled_validation.insecure_disable_signature_validation();
-    disabled_validation.validate_aud = false;
-
-    // Find the type of this JWT token
-    let jwt_token = match jsonwebtoken::decode::<Value>(
-        jwt_token,
-        &DecodingKey::from_secret(&[]),
-        &disabled_validation,
-    )?
-    .claims
-    .as_object()
-    .unwrap_or(&Map::new())
-    .get("typ")
+    let update_secrets_resp = if let Some(update_secrets_resp) = event
+        .remove("update_secrets_resp")
+        .map(serde_json::from_value::<UpdateSecretsResponse>)
     {
-        Some(Value::String(typ)) => {
-            let mut validation = Validation::new(Algorithm::HS512);
-            validation.set_audience(auth_constants::AUDIENCE_ACTIONS);
+        Some(update_secrets_resp?)
+    } else {
+        None
+    };
 
-            // Ensure the given JWT token is valid
-            match typ.as_str() {
-                auth_constants::TOKEN_TYPE_ACCESS => {
-                    let jwt_token = jsonwebtoken::decode(
-                        jwt_token,
-                        &DecodingKey::from_secret(env.access_token_secret.as_bytes()),
-                        &validation,
-                    )?;
+    // First iteration of this lambda invocation
+    if !is_continue {
+        // Generate new API Gateway API keys
+        let create_rest_api_key_task = env
+            .api_gateway
+            .create_api_key()
+            .name(&*auth_constants::REST_API_KEY_NAME)
+            .enabled(true)
+            .send();
 
-                    JwtToken::Access(jwt_token.claims)
-                }
-                auth_constants::TOKEN_TYPE_REFRESH => {
-                    let jwt_token = jsonwebtoken::decode(
-                        jwt_token,
-                        &DecodingKey::from_secret(env.refresh_token_secret.as_bytes()),
-                        &validation,
-                    )?;
+        let create_ws_api_key_task = env
+            .api_gateway
+            .create_api_key()
+            .name(&*auth_constants::WS_API_KEY_NAME)
+            .enabled(true)
+            .send();
 
-                    JwtToken::Refresh(jwt_token.claims)
-                }
-                auth_constants::TOKEN_TYPE_SESSION => {
-                    let jwt_token = jsonwebtoken::decode(
-                        jwt_token,
-                        &DecodingKey::from_secret(env.session_token_secret.as_bytes()),
-                        &validation,
-                    )?;
+        // Fetch the latest CloudFront distribution config to be reused for update a few config
+        let get_cf_dist_cfg_task = env
+            .cloudfront
+            .get_distribution_config()
+            .id(&*auth_constants::CF_DISTRIBUTION_ID)
+            .send();
 
-                    JwtToken::Session(jwt_token.claims)
-                }
-                typ => panic!("Unknown JWT token type: {typ}"),
-            }
+        // Find the latest version of each SSM parameters
+        let get_access_token_ssm_params_task = env
+            .ssm
+            .get_parameters_by_path()
+            .path(auth_constants::ACCESS_TOKEN_PARAM_PATH)
+            .send();
+
+        let get_refresh_token_ssm_params_task = env
+            .ssm
+            .get_parameters_by_path()
+            .path(auth_constants::REFRESH_TOKEN_PARAM_PATH)
+            .send();
+
+        let get_session_token_ssm_params_task = env
+            .ssm
+            .get_parameters_by_path()
+            .path(auth_constants::SESSION_TOKEN_PARAM_PATH)
+            .send();
+
+        let get_mfa_ssm_params_task = env
+            .ssm
+            .get_parameters_by_path()
+            .path(auth_constants::MFA_PARAM_PATH)
+            .send();
+
+        // Kickstart AWS service related tasks
+        let (
+            create_rest_api_key_task_resp,
+            create_ws_api_key_task_resp,
+            get_cf_dist_cfg_task_resp,
+            get_access_token_ssm_params_task_resp,
+            get_refresh_token_ssm_params_task_resp,
+            get_session_token_ssm_params_task_resp,
+            get_mfa_ssm_params_task_resp,
+        ) = tokio::join!(
+            create_rest_api_key_task,
+            create_ws_api_key_task,
+            get_cf_dist_cfg_task,
+            get_access_token_ssm_params_task,
+            get_refresh_token_ssm_params_task,
+            get_session_token_ssm_params_task,
+            get_mfa_ssm_params_task
+        );
+        let create_rest_api_key_task_resp =
+            create_rest_api_key_task_resp.context(Location::caller())?;
+        let create_ws_api_key_task_resp = create_ws_api_key_task_resp.context(Location::caller())?;
+        let mut get_cf_dist_cfg_task_resp = get_cf_dist_cfg_task_resp.context(Location::caller())?;
+        let get_access_token_ssm_params_task_resp =
+            get_access_token_ssm_params_task_resp.context(Location::caller())?;
+        let get_refresh_token_ssm_params_task_resp =
+            get_refresh_token_ssm_params_task_resp.context(Location::caller())?;
+        let get_session_token_ssm_params_task_resp =
+            get_session_token_ssm_params_task_resp.context(Location::caller())?;
+        let get_mfa_ssm_params_task_resp =
+            get_mfa_ssm_params_task_resp.context(Location::caller())?;
+
+        // Update CloudFront distribution origin x-api-key to use the new one
+        let mut origin_map = get_cf_dist_cfg_task_resp
+            .distribution_config
+            .as_mut()
+            .unwrap()
+            .origins
+            .as_mut()
+            .unwrap()
+            .items
+            .iter_mut()
+            .map(|origin| (origin.domain_name.to_string(), origin))
+            .collect::<HashMap<_, _>>();
+
+        origin_map
+            .get_mut(&*auth_constants::CF_ORIGIN_WS_API_DOMAIN_NAME)
+            .unwrap()
+            .custom_headers
+            .as_mut()
+            .unwrap()
+            .items
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|header| header.header_name == "x-api-key")
+            .unwrap()
+            .header_value = create_ws_api_key_task_resp.value.unwrap_or_default();
+
+        origin_map
+            .get_mut(&*auth_constants::CF_ORIGIN_REST_API_DOMAIN_NAME)
+            .unwrap()
+            .custom_headers
+            .as_mut()
+            .unwrap()
+            .items
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|header| header.header_name == "x-api-key")
+            .unwrap()
+            .header_value = create_rest_api_key_task_resp.value.unwrap_or_default();
+
+        let update_cf_dist_cfg_task = env
+            .cloudfront
+            .update_distribution()
+            .distribution_config(get_cf_dist_cfg_task_resp.distribution_config.unwrap())
+            .id(&*auth_constants::CF_DISTRIBUTION_ID)
+            .if_match(get_cf_dist_cfg_task_resp.e_tag.unwrap_or_default())
+            .send();
+
+        // Generate new JWT token and MFA secret SSM parameters
+        let access_token_ssm_param_name = format!(
+            "{name}/v{version}",
+            name = auth_constants::ACCESS_TOKEN_PARAM_PATH,
+            version = get_access_token_ssm_params_task_resp
+                .parameters
+                .unwrap()
+                .last()
+                .unwrap()
+                .name
+                .as_ref()
+                .unwrap()
+                .strip_prefix(&format!("{}/v", auth_constants::ACCESS_TOKEN_PARAM_PATH))
+                .unwrap()
+                .parse::<u32>()
+                .context(Location::caller())?
+                + 1
+        );
+
+        let refresh_token_ssm_param_name = format!(
+            "{name}/v{version}",
+            name = auth_constants::REFRESH_TOKEN_PARAM_PATH,
+            version = get_refresh_token_ssm_params_task_resp
+                .parameters
+                .unwrap()
+                .last()
+                .unwrap()
+                .name
+                .as_ref()
+                .unwrap()
+                .strip_prefix(&format!("{}/v", auth_constants::REFRESH_TOKEN_PARAM_PATH))
+                .unwrap()
+                .parse::<u32>()
+                .context(Location::caller())?
+                + 1
+        );
+
+        let session_token_ssm_param_name = format!(
+            "{name}/v{version}",
+            name = auth_constants::SESSION_TOKEN_PARAM_PATH,
+            version = get_session_token_ssm_params_task_resp
+                .parameters
+                .unwrap()
+                .last()
+                .unwrap()
+                .name
+                .as_ref()
+                .unwrap()
+                .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
+                .unwrap()
+                .parse::<u32>()
+                .context(Location::caller())?
+                + 1
+        );
+
+        let mfa_ssm_param_name = format!(
+            "{name}/v{version}",
+            name = auth_constants::MFA_PARAM_PATH,
+            version = get_mfa_ssm_params_task_resp
+                .parameters
+                .unwrap()
+                .last()
+                .unwrap()
+                .name
+                .as_ref()
+                .unwrap()
+                .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
+                .unwrap()
+                .parse::<u32>()
+                .context(Location::caller())?
+                + 1
+        );
+
+        let access_token_ssm_param_value =
+            random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
+
+        let refresh_token_ssm_param_value =
+            random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
+
+        let session_token_ssm_param_value =
+            random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
+
+        let mfa_ssm_param_value = random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
+
+        let put_access_token_ssm_param_task = env
+            .ssm
+            .put_parameter()
+            .name(access_token_ssm_param_name)
+            .value(access_token_ssm_param_value)
+            .r#type(ParameterType::SecureString)
+            .send();
+
+        let put_refresh_token_ssm_param_task = env
+            .ssm
+            .put_parameter()
+            .name(refresh_token_ssm_param_name)
+            .value(refresh_token_ssm_param_value)
+            .r#type(ParameterType::SecureString)
+            .send();
+
+        let put_session_token_ssm_param_task = env
+            .ssm
+            .put_parameter()
+            .name(session_token_ssm_param_name)
+            .value(session_token_ssm_param_value)
+            .r#type(ParameterType::SecureString)
+            .send();
+
+        let put_mfa_ssm_param_task = env
+            .ssm
+            .put_parameter()
+            .name(mfa_ssm_param_name)
+            .value(mfa_ssm_param_value)
+            .r#type(ParameterType::SecureString)
+            .send();
+
+        // Kickstart AWS service related tasks
+        let (
+            update_cf_dist_cfg_task_resp,
+            put_access_token_ssm_param_task_resp,
+            put_refresh_token_ssm_param_task_resp,
+            put_session_token_ssm_param_task_resp,
+            put_mfa_ssm_param_task_resp,
+        ) = tokio::join!(
+            update_cf_dist_cfg_task,
+            put_access_token_ssm_param_task,
+            put_refresh_token_ssm_param_task,
+            put_session_token_ssm_param_task,
+            put_mfa_ssm_param_task
+        );
+        update_cf_dist_cfg_task_resp.context(Location::caller())?;
+        put_access_token_ssm_param_task_resp.context(Location::caller())?;
+        put_refresh_token_ssm_param_task_resp.context(Location::caller())?;
+        put_session_token_ssm_param_task_resp.context(Location::caller())?;
+        put_mfa_ssm_param_task_resp.context(Location::caller())?;
+    }
+
+    let user_db = AuthUserDb {
+        dynamodb: &env.dynamodb,
+        ssm: Some(&env.ssm),
+    };
+
+    let (start_user_id, end_user_id) = if let Some(update_secrets_resp) = update_secrets_resp {
+        (
+            update_secrets_resp.start_user_id,
+            update_secrets_resp.end_user_id,
+        )
+    } else {
+        let next_user_id = user_db
+            .get_next_user_id()
+            .await
+            .context(Location::caller())?;
+
+        (1, next_user_id)
+    };
+
+    for user_id in start_user_id..end_user_id {
+        user_db
+            .rotate_mfa_secret(user_id)
+            .await
+            .context(Location::caller())?;
+
+        if common::is_almost_timeout(context)
+            .call()
+            .context(Location::caller())?
+        {
+            let resp = UpdateSecretsResponse {
+                start_user_id: user_id + 1,
+                end_user_id,
+            };
+
+            event.insert("is_continue".to_string(), json!(true));
+            event.insert("update_secrets_resp".to_string(), json!(resp));
+            break;
         }
-        _ => panic!("typ not found"),
-    };
-
-    Ok(jwt_token)
-}
-
-#[optarg_fn(GenPolicyBuilder, call)]
-fn gen_policy(
-    method_arn: String,
-    principal_id: String,
-    effect: IamPolicyEffect,
-    jti: String,
-    #[optarg_default] sub: String,
-    #[optarg_default] dest: Option<Action>,
-    #[optarg_default] orig: String,
-) -> ApiGatewayCustomAuthorizerResponse<AuthUserContext> {
-    ApiGatewayCustomAuthorizerResponse {
-        principal_id: Some(principal_id),
-        policy_document: ApiGatewayCustomAuthorizerPolicy {
-            version: Some("2012-10-17".to_string()),
-            statement: vec![IamPolicyStatement {
-                action: vec!["execute-api:Invoke".to_string()],
-                effect,
-                resource: vec![method_arn],
-                condition: None,
-            }],
-        },
-        context: AuthUserContext {
-            jti,
-            sub,
-            dest,
-            orig,
-        },
-        usage_identifier_key: None,
-    }
-}
-
-async fn auth_access_token(
-    AuthAccessToken {
-        jti,
-        sub,
-        roles,
-        orig,
-        ..
-    }: AuthAccessToken,
-    method_arn_str: &str,
-    env: &Env,
-) -> Result<ApiGatewayCustomAuthorizerResponse<AuthUserContext>> {
-    let Some(valid_token_pair) = AuthValidTokenPairDb {
-        dynamodb: &env.dynamodb,
-    }
-    .get_item(&orig)
-    .await
-    .context(Location::caller())?
-    else {
-        bail!(AuthError::Unauthorized);
-    };
-
-    if jti != valid_token_pair.access_token_jti {
-        bail!(AuthError::Unauthorized);
     }
 
-    let method_arn = MethodArn::from(method_arn_str);
-
-    let rbac = AuthRbacDb {
-        dynamodb: &env.dynamodb,
-    }
-    .get_item(&method_arn.method, &method_arn.path)
-    .await
-    .context(Location::caller())?;
-
-    let policy_effect = if let Some(rbac) = rbac {
-        if rbac.roles.is_disjoint(&HashSet::from_iter(roles)) {
-            IamPolicyEffect::Deny
-        } else {
-            IamPolicyEffect::Allow
-        }
-    } else {
-        IamPolicyEffect::Deny
-    };
-
-    let policy = gen_policy(
-        method_arn_str.to_string(),
-        sub.to_string(),
-        policy_effect,
-        jti,
-    )
-    .sub(sub.to_string())
-    .orig(orig)
-    .call();
-
-    Ok(policy)
-}
-
-async fn auth_refresh_token(
-    AuthRefreshToken { jti, sub, .. }: AuthRefreshToken,
-    method_arn_str: &str,
-    env: &Env,
-) -> Result<ApiGatewayCustomAuthorizerResponse<AuthUserContext>> {
-    let Some(_valid_token_pair) = AuthValidTokenPairDb {
-        dynamodb: &env.dynamodb,
-    }
-    .get_item(&jti)
-    .await
-    .context(Location::caller())?
-    else {
-        bail!(AuthError::Unauthorized);
-    };
-
-    let policy_effect = if MethodArn::from(method_arn_str).path.ends_with("/refresh") {
-        IamPolicyEffect::Allow
-    } else {
-        IamPolicyEffect::Deny
-    };
-
-    let policy = gen_policy(
-        method_arn_str.to_string(),
-        jti.to_string(),
-        policy_effect,
-        jti,
-    )
-    .sub(sub.to_string())
-    .call();
-
-    Ok(policy)
-}
-
-async fn auth_session_token(
-    AuthSessionToken {
-        jti,
-        sub,
-        aud,
-        dest,
-        ..
-    }: AuthSessionToken,
-    method_arn_str: &str,
-) -> ApiGatewayCustomAuthorizerResponse<AuthUserContext> {
-    let policy_effect = if MethodArn::from(method_arn_str)
-        .path
-        .ends_with(&format!("/{aud}"))
-    {
-        IamPolicyEffect::Allow
-    } else {
-        IamPolicyEffect::Deny
-    };
-
-    gen_policy(
-        method_arn_str.to_string(),
-        sub.to_string(),
-        policy_effect,
-        jti,
-    )
-    .sub(sub.to_string())
-    .dest(dest)
-    .call()
+    Ok(json!(event))
 }

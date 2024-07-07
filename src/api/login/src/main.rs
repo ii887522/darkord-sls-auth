@@ -17,6 +17,7 @@ use common::{
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{mem, panic::Location};
 use uuid::Uuid;
 use validator::Validate;
@@ -178,8 +179,8 @@ async fn handler(
         return Ok(api_resp.into());
     };
 
-    let Some(user) = user_db
-        .get_item(user_id)
+    let Some(user_detail) = user_db
+        .get_detail(user_id)
         .await
         .context(Location::caller())?
     else {
@@ -199,7 +200,7 @@ async fn handler(
         return Ok(api_resp.into());
     };
 
-    if !common::verify_secret(&req.password, &user.password) {
+    if !common::verify_secret(&req.password, &user_detail.password) {
         let api_resp = ApiResponse {
             code: 4010,
             request_id: &context.request_id,
@@ -216,7 +217,7 @@ async fn handler(
         return Ok(api_resp.into());
     }
 
-    let resp = if !user.verified_attrs.contains(&UserAttr::EmailAddr) {
+    let resp = if !user_detail.verified_attrs.contains(&UserAttr::EmailAddr) {
         // todo: Send a verification email to the given email address with the verification code
         // todo: Email content based on the given locale
 
@@ -265,7 +266,7 @@ async fn handler(
 
     let api_resp = ApiResponse {
         code: 2000,
-        payload: serde_json::to_value(resp).context(Location::caller())?,
+        payload: json!(resp),
         request_id: &context.request_id,
         ..Default::default()
     };
