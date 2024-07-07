@@ -89,8 +89,9 @@ functions:
       - Effect: Allow
         Action:
           - apigateway:CreateApiKey
+          - apigateway:POST
         Resource:
-          - arn:aws:apigateway:${param:region}::/*
+          - arn:aws:apigateway:${param:region}::/apikeys
       - Effect: Allow
         Action:
           - cloudfront:GetDistributionConfig
@@ -128,8 +129,9 @@ functions:
       - Effect: Allow
         Action:
           - apigateway:CreateApiKey
+          - apigateway:POST
         Resource:
-          - arn:aws:apigateway:${param:region}::/*
+          - arn:aws:apigateway:${param:region}::/apikeys
       - Effect: Allow
         Action:
           - cloudfront:GetDistributionConfig
