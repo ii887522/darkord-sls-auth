@@ -156,7 +156,7 @@ impl<'a> AuthValidTokenPairDb<'a> {
             if let DeleteItemError::ConditionalCheckFailedException(_) = err {
                 let err = CommonError {
                     code: 4001,
-                    message: "User already logged out",
+                    message: "User already logged out".to_string(),
                 };
 
                 bail!(err);

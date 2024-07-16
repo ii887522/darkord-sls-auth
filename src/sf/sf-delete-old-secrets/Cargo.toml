@@ -10,9 +10,11 @@ workspace = true
 anyhow = "1.0"
 auth-lib = { path = "../../auth-lib" }
 aws-config = "1.4"
-aws-sdk-dynamodb = "1.27"
+aws-sdk-apigateway = "1.33"
+aws-sdk-cloudfront = "1.35"
 aws-sdk-ssm = "1.27"
 common = { path = "../../../../darkord-sls-common/src/common" }
+futures = "0.3.30"
 jsonwebtoken = { version = "9.3", default-features = false }
 lambda_runtime = "0.11.2"
 optarg2chain = "0.1.0"

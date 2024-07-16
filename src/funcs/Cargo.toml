@@ -10,7 +10,7 @@ split-debuginfo = "packed"
 
 [profile.release]
 codegen-units = 1
-lto = "thin"
+lto = true
 panic = "abort"
 split-debuginfo = "packed"
 strip = true

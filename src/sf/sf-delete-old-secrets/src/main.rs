@@ -1,21 +1,18 @@
-use advanced_random_string::{charset, random_string};
 use anyhow::{Context as _, Result};
-use auth_lib::{auth_constants, auth_sf_models::UpdateSecretsResponse, AuthUserDb};
+use auth_lib::auth_constants;
 use aws_config::BehaviorVersion;
-use aws_sdk_ssm::types::ParameterType;
 use common::{
     self,
     common_tracing::{self, Logger},
 };
+use futures::future;
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
-use serde_json::{json, Value};
-use std::{collections::HashMap, panic::Location};
+use serde_json::Value;
+use std::panic::Location;
 
 #[derive(Debug)]
 struct Env {
     api_gateway: aws_sdk_apigateway::Client,
-    cloudfront: aws_sdk_cloudfront::Client,
-    dynamodb: aws_sdk_dynamodb::Client,
     ssm: aws_sdk_ssm::Client,
 }
 
@@ -25,16 +22,8 @@ async fn main() -> Result<(), Error> {
 
     let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
     let api_gateway = aws_sdk_apigateway::Client::new(&config);
-    let cloudfront = aws_sdk_cloudfront::Client::new(&config);
-    let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ssm = aws_sdk_ssm::Client::new(&config);
-
-    let env = Env {
-        api_gateway,
-        cloudfront,
-        dynamodb,
-        ssm,
-    };
+    let env = Env { api_gateway, ssm };
 
     run(service_fn(|event: LambdaEvent<Value>| async {
         let (event, context) = event.into_parts();
@@ -50,330 +39,145 @@ async fn main() -> Result<(), Error> {
     .await
 }
 
-async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value> {
+async fn handler(mut event: Value, _context: &Context, env: &Env) -> Result<Value> {
     event.log().context(Location::caller())?;
-    let event = event.as_object_mut().unwrap();
 
-    let is_continue = event
-        .remove("is_continue")
-        .unwrap_or_default()
-        .as_bool()
-        .unwrap_or_default();
+    // Fetch a list of API Gateway API keys
+    let get_rest_api_keys_task = env
+        .api_gateway
+        .get_api_keys()
+        .name_query(&*auth_constants::REST_API_KEY_NAME)
+        .send();
 
-    let update_secrets_resp = if let Some(update_secrets_resp) = event
-        .remove("update_secrets_resp")
-        .map(serde_json::from_value::<UpdateSecretsResponse>)
-    {
-        Some(update_secrets_resp?)
-    } else {
-        None
-    };
+    let get_ws_api_keys_task = env
+        .api_gateway
+        .get_api_keys()
+        .name_query(&*auth_constants::WS_API_KEY_NAME)
+        .send();
 
-    // First iteration of this lambda invocation
-    if !is_continue {
-        // Generate new API Gateway API keys
-        let create_rest_api_key_task = env
-            .api_gateway
-            .create_api_key()
-            .name(&*auth_constants::REST_API_KEY_NAME)
-            .enabled(true)
-            .send();
+    // Fetch a list of JWT token and MFA secret SSM parameters
+    let get_access_token_ssm_params_task = env
+        .ssm
+        .get_parameters_by_path()
+        .path(auth_constants::ACCESS_TOKEN_PARAM_PATH)
+        .send();
 
-        let create_ws_api_key_task = env
-            .api_gateway
-            .create_api_key()
-            .name(&*auth_constants::WS_API_KEY_NAME)
-            .enabled(true)
-            .send();
+    let get_refresh_token_ssm_params_task = env
+        .ssm
+        .get_parameters_by_path()
+        .path(auth_constants::REFRESH_TOKEN_PARAM_PATH)
+        .send();
 
-        // Fetch the latest CloudFront distribution config to be reused for update a few config
-        let get_cf_dist_cfg_task = env
-            .cloudfront
-            .get_distribution_config()
-            .id(&*auth_constants::CF_DISTRIBUTION_ID)
-            .send();
+    let get_session_token_ssm_params_task = env
+        .ssm
+        .get_parameters_by_path()
+        .path(auth_constants::SESSION_TOKEN_PARAM_PATH)
+        .send();
 
-        // Find the latest version of each SSM parameters
-        let get_access_token_ssm_params_task = env
-            .ssm
-            .get_parameters_by_path()
-            .path(auth_constants::ACCESS_TOKEN_PARAM_PATH)
-            .send();
+    let get_mfa_ssm_params_task = env
+        .ssm
+        .get_parameters_by_path()
+        .path(auth_constants::MFA_PARAM_PATH)
+        .send();
 
-        let get_refresh_token_ssm_params_task = env
-            .ssm
-            .get_parameters_by_path()
-            .path(auth_constants::REFRESH_TOKEN_PARAM_PATH)
-            .send();
+    // Kickstart AWS service related tasks
+    let (
+        get_rest_api_keys_task_resp,
+        get_ws_api_keys_task_resp,
+        get_access_token_ssm_params_task_resp,
+        get_refresh_token_ssm_params_task_resp,
+        get_session_token_ssm_params_task_resp,
+        get_mfa_ssm_params_task_resp,
+    ) = tokio::join!(
+        get_rest_api_keys_task,
+        get_ws_api_keys_task,
+        get_access_token_ssm_params_task,
+        get_refresh_token_ssm_params_task,
+        get_session_token_ssm_params_task,
+        get_mfa_ssm_params_task,
+    );
+    let get_rest_api_keys_task_resp = get_rest_api_keys_task_resp.context(Location::caller())?;
+    let get_ws_api_keys_task_resp = get_ws_api_keys_task_resp.context(Location::caller())?;
+    let get_access_token_ssm_params_task_resp =
+        get_access_token_ssm_params_task_resp.context(Location::caller())?;
+    let get_refresh_token_ssm_params_task_resp =
+        get_refresh_token_ssm_params_task_resp.context(Location::caller())?;
+    let get_session_token_ssm_params_task_resp =
+        get_session_token_ssm_params_task_resp.context(Location::caller())?;
+    let get_mfa_ssm_params_task_resp = get_mfa_ssm_params_task_resp.context(Location::caller())?;
 
-        let get_session_token_ssm_params_task = env
-            .ssm
-            .get_parameters_by_path()
-            .path(auth_constants::SESSION_TOKEN_PARAM_PATH)
-            .send();
+    let mut rest_api_keys = get_rest_api_keys_task_resp.items.unwrap();
+    let mut ws_api_keys = get_ws_api_keys_task_resp.items.unwrap();
+    rest_api_keys.sort_unstable_by_key(|api_key| api_key.created_date);
+    ws_api_keys.sort_unstable_by_key(|api_key| api_key.created_date);
 
-        let get_mfa_ssm_params_task = env
-            .ssm
-            .get_parameters_by_path()
-            .path(auth_constants::MFA_PARAM_PATH)
-            .send();
+    // Cleanup old API keys
+    let delete_api_keys_task = future::join_all(
+        rest_api_keys
+            .into_iter()
+            .rev()
+            .skip(1)
+            .rev()
+            .chain(ws_api_keys.into_iter().rev().skip(1).rev())
+            .map(|api_key| {
+                env.api_gateway
+                    .delete_api_key()
+                    .api_key(api_key.id.unwrap())
+                    .send()
+            }),
+    );
 
-        // Kickstart AWS service related tasks
-        let (
-            create_rest_api_key_task_resp,
-            create_ws_api_key_task_resp,
-            get_cf_dist_cfg_task_resp,
-            get_access_token_ssm_params_task_resp,
-            get_refresh_token_ssm_params_task_resp,
-            get_session_token_ssm_params_task_resp,
-            get_mfa_ssm_params_task_resp,
-        ) = tokio::join!(
-            create_rest_api_key_task,
-            create_ws_api_key_task,
-            get_cf_dist_cfg_task,
-            get_access_token_ssm_params_task,
-            get_refresh_token_ssm_params_task,
-            get_session_token_ssm_params_task,
-            get_mfa_ssm_params_task
-        );
-        let create_rest_api_key_task_resp =
-            create_rest_api_key_task_resp.context(Location::caller())?;
-        let create_ws_api_key_task_resp = create_ws_api_key_task_resp.context(Location::caller())?;
-        let mut get_cf_dist_cfg_task_resp = get_cf_dist_cfg_task_resp.context(Location::caller())?;
-        let get_access_token_ssm_params_task_resp =
-            get_access_token_ssm_params_task_resp.context(Location::caller())?;
-        let get_refresh_token_ssm_params_task_resp =
-            get_refresh_token_ssm_params_task_resp.context(Location::caller())?;
-        let get_session_token_ssm_params_task_resp =
-            get_session_token_ssm_params_task_resp.context(Location::caller())?;
-        let get_mfa_ssm_params_task_resp =
-            get_mfa_ssm_params_task_resp.context(Location::caller())?;
-
-        // Update CloudFront distribution origin x-api-key to use the new one
-        let mut origin_map = get_cf_dist_cfg_task_resp
-            .distribution_config
-            .as_mut()
-            .unwrap()
-            .origins
-            .as_mut()
-            .unwrap()
-            .items
-            .iter_mut()
-            .map(|origin| (origin.domain_name.to_string(), origin))
-            .collect::<HashMap<_, _>>();
-
-        origin_map
-            .get_mut(&*auth_constants::CF_ORIGIN_WS_API_DOMAIN_NAME)
-            .unwrap()
-            .custom_headers
-            .as_mut()
-            .unwrap()
-            .items
-            .as_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|header| header.header_name == "x-api-key")
-            .unwrap()
-            .header_value = create_ws_api_key_task_resp.value.unwrap_or_default();
-
-        origin_map
-            .get_mut(&*auth_constants::CF_ORIGIN_REST_API_DOMAIN_NAME)
-            .unwrap()
-            .custom_headers
-            .as_mut()
-            .unwrap()
-            .items
-            .as_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|header| header.header_name == "x-api-key")
-            .unwrap()
-            .header_value = create_rest_api_key_task_resp.value.unwrap_or_default();
-
-        let update_cf_dist_cfg_task = env
-            .cloudfront
-            .update_distribution()
-            .distribution_config(get_cf_dist_cfg_task_resp.distribution_config.unwrap())
-            .id(&*auth_constants::CF_DISTRIBUTION_ID)
-            .if_match(get_cf_dist_cfg_task_resp.e_tag.unwrap_or_default())
-            .send();
-
-        // Generate new JWT token and MFA secret SSM parameters
-        let access_token_ssm_param_name = format!(
-            "{name}/v{version}",
-            name = auth_constants::ACCESS_TOKEN_PARAM_PATH,
-            version = get_access_token_ssm_params_task_resp
+    // Cleanup old JWT token and MFA secret SSM parameters
+    let del_ssm_params_task = future::join_all(
+        get_access_token_ssm_params_task_resp
+        .parameters
+        .unwrap()
+        .into_iter()
+        .rev()
+        .skip(1)
+        .rev()
+        .chain(
+            get_refresh_token_ssm_params_task_resp
                 .parameters
                 .unwrap()
-                .last()
-                .unwrap()
-                .name
-                .as_ref()
-                .unwrap()
-                .strip_prefix(&format!("{}/v", auth_constants::ACCESS_TOKEN_PARAM_PATH))
-                .unwrap()
-                .parse::<u32>()
-                .context(Location::caller())?
-                + 1
-        );
-
-        let refresh_token_ssm_param_name = format!(
-            "{name}/v{version}",
-            name = auth_constants::REFRESH_TOKEN_PARAM_PATH,
-            version = get_refresh_token_ssm_params_task_resp
-                .parameters
-                .unwrap()
-                .last()
-                .unwrap()
-                .name
-                .as_ref()
-                .unwrap()
-                .strip_prefix(&format!("{}/v", auth_constants::REFRESH_TOKEN_PARAM_PATH))
-                .unwrap()
-                .parse::<u32>()
-                .context(Location::caller())?
-                + 1
-        );
-
-        let session_token_ssm_param_name = format!(
-            "{name}/v{version}",
-            name = auth_constants::SESSION_TOKEN_PARAM_PATH,
-            version = get_session_token_ssm_params_task_resp
-                .parameters
-                .unwrap()
-                .last()
-                .unwrap()
-                .name
-                .as_ref()
-                .unwrap()
-                .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
-                .unwrap()
-                .parse::<u32>()
-                .context(Location::caller())?
-                + 1
-        );
-
-        let mfa_ssm_param_name = format!(
-            "{name}/v{version}",
-            name = auth_constants::MFA_PARAM_PATH,
-            version = get_mfa_ssm_params_task_resp
-                .parameters
-                .unwrap()
-                .last()
-                .unwrap()
-                .name
-                .as_ref()
-                .unwrap()
-                .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
-                .unwrap()
-                .parse::<u32>()
-                .context(Location::caller())?
-                + 1
-        );
-
-        let access_token_ssm_param_value =
-            random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
-
-        let refresh_token_ssm_param_value =
-            random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
-
-        let session_token_ssm_param_value =
-            random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
-
-        let mfa_ssm_param_value = random_string::generate_os_secure(64, charset::URLSAFE_BASE64);
-
-        let put_access_token_ssm_param_task = env
-            .ssm
-            .put_parameter()
-            .name(access_token_ssm_param_name)
-            .value(access_token_ssm_param_value)
-            .r#type(ParameterType::SecureString)
-            .send();
-
-        let put_refresh_token_ssm_param_task = env
-            .ssm
-            .put_parameter()
-            .name(refresh_token_ssm_param_name)
-            .value(refresh_token_ssm_param_value)
-            .r#type(ParameterType::SecureString)
-            .send();
-
-        let put_session_token_ssm_param_task = env
-            .ssm
-            .put_parameter()
-            .name(session_token_ssm_param_name)
-            .value(session_token_ssm_param_value)
-            .r#type(ParameterType::SecureString)
-            .send();
-
-        let put_mfa_ssm_param_task = env
-            .ssm
-            .put_parameter()
-            .name(mfa_ssm_param_name)
-            .value(mfa_ssm_param_value)
-            .r#type(ParameterType::SecureString)
-            .send();
-
-        // Kickstart AWS service related tasks
-        let (
-            update_cf_dist_cfg_task_resp,
-            put_access_token_ssm_param_task_resp,
-            put_refresh_token_ssm_param_task_resp,
-            put_session_token_ssm_param_task_resp,
-            put_mfa_ssm_param_task_resp,
-        ) = tokio::join!(
-            update_cf_dist_cfg_task,
-            put_access_token_ssm_param_task,
-            put_refresh_token_ssm_param_task,
-            put_session_token_ssm_param_task,
-            put_mfa_ssm_param_task
-        );
-        update_cf_dist_cfg_task_resp.context(Location::caller())?;
-        put_access_token_ssm_param_task_resp.context(Location::caller())?;
-        put_refresh_token_ssm_param_task_resp.context(Location::caller())?;
-        put_session_token_ssm_param_task_resp.context(Location::caller())?;
-        put_mfa_ssm_param_task_resp.context(Location::caller())?;
-    }
-
-    let user_db = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    };
-
-    let (start_user_id, end_user_id) = if let Some(update_secrets_resp) = update_secrets_resp {
-        (
-            update_secrets_resp.start_user_id,
-            update_secrets_resp.end_user_id,
+                .into_iter()
+                .rev()
+                .skip(1)
+                .rev(),
         )
-    } else {
-        let next_user_id = user_db
-            .get_next_user_id()
-            .await
-            .context(Location::caller())?;
+        .chain(
+            get_session_token_ssm_params_task_resp
+                .parameters
+                .unwrap()
+                .into_iter()
+                .rev()
+                .skip(1)
+                .rev(),
+        )
+        .chain(
+            get_mfa_ssm_params_task_resp
+                .parameters
+                .unwrap()
+                .into_iter()
+                .rev()
+                .skip(1)
+                .rev(),
+        )
+        .map(|ssm_param| ssm_param.name.unwrap())
+        .collect::<Vec<_>>()
+        .chunks(10) // SSM delete_parameters() names parameter only support at most 10 names
+        .map(|ssm_param_names| env.ssm.delete_parameters().set_names(Some(ssm_param_names.to_vec())).send()),
+    );
 
-        (1, next_user_id)
-    };
-
-    for user_id in start_user_id..end_user_id {
-        user_db
-            .rotate_mfa_secret(user_id)
-            .await
-            .context(Location::caller())?;
-
-        if common::is_almost_timeout(context)
-            .call()
-            .context(Location::caller())?
-        {
-            let resp = UpdateSecretsResponse {
-                start_user_id: user_id + 1,
-                end_user_id,
-            };
-
-            event.insert("is_continue".to_string(), json!(true));
-            event.insert("update_secrets_resp".to_string(), json!(resp));
-            break;
-        }
+    // Kickstart AWS service related tasks
+    let (delete_api_keys_task_resp, del_ssm_params_task_resp) =
+        tokio::join!(delete_api_keys_task, del_ssm_params_task);
+    for delete_api_key_task_resp in delete_api_keys_task_resp {
+        delete_api_key_task_resp.context(Location::caller())?;
+    }
+    for del_ssm_params_task_resp in del_ssm_params_task_resp {
+        del_ssm_params_task_resp.context(Location::caller())?;
     }
 
-    Ok(json!(event))
+    Ok(event)
 }

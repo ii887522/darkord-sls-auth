@@ -35,9 +35,13 @@ params:
     stagePrefix: stage_
     stageDashPrefix: stage-
 
-    # API key names
+    # API keys
     restApiKeyName: darkord-flutter-stage-rest-api-key
     wsApiKeyName: darkord-flutter-stage-ws-api-key
+
+    # API usage plans
+    restApiUsagePlanId: 17y9s6
+    wsApiUsagePlanId: uyuzpe
 
     # CloudFront distributions
     cfDistributionId: E1P9RYVNZM3LAL
@@ -54,11 +58,15 @@ params:
     stagePrefix: ""
     stageDashPrefix: ""
 
-    # API key names
+    # API keys
     restApiKeyName: darkord-flutter-rest-api-key
     wsApiKeyName: darkord-flutter-ws-api-key
 
-    # CloudFront
+    # API usage plans
+    restApiUsagePlanId: 4b95pw
+    wsApiUsagePlanId: y27izh
+
+    # CloudFront distributions
     cfDistributionId: E1L8FGDB1BRFWF
     cfOriginRestApiDomainName: udz4iyqum3.execute-api.ap-southeast-1.amazonaws.com
     cfOriginWsApiDomainName: f55d4hf4ak.execute-api.ap-southeast-1.amazonaws.com
@@ -82,16 +90,18 @@ package:
 functions:
   sf-update-secrets:
     handler: sf-update-secrets
+    timeout: 900
     package:
       patterns:
         - "sf-update-secrets/**"
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - apigateway:CreateApiKey
           - apigateway:POST
         Resource:
           - arn:aws:apigateway:${param:region}::/apikeys
+          - arn:aws:apigateway:${param:region}::/usageplans/${param:restApiUsagePlanId}/keys
+          - arn:aws:apigateway:${param:region}::/usageplans/${param:wsApiUsagePlanId}/keys
       - Effect: Allow
         Action:
           - cloudfront:GetDistributionConfig
@@ -120,6 +130,8 @@ functions:
       CF_DISTRIBUTION_ID: ${param:cfDistributionId}
       CF_ORIGIN_REST_API_DOMAIN_NAME: ${param:cfOriginRestApiDomainName}
       CF_ORIGIN_WS_API_DOMAIN_NAME: ${param:cfOriginWsApiDomainName}
+      REST_API_USAGE_PLAN_ID: ${param:restApiUsagePlanId}
+      WS_API_USAGE_PLAN_ID: ${param:wsApiUsagePlanId}
   sf-delete-old-secrets:
     handler: sf-delete-old-secrets
     package:
@@ -128,32 +140,95 @@ functions:
     iamRoleStatements:
       - Effect: Allow
         Action:
-          - apigateway:CreateApiKey
-          - apigateway:POST
+          - apigateway:GET
+          - apigateway:DELETE
         Resource:
           - arn:aws:apigateway:${param:region}::/apikeys
-      - Effect: Allow
-        Action:
-          - cloudfront:GetDistributionConfig
-          - cloudfront:UpdateDistribution
-        Resource:
-          - arn:aws:cloudfront::${aws:accountId}:distribution/${param:cfDistributionId}
+          - arn:aws:apigateway:${param:region}::/apikeys/*
       - Effect: Allow
         Action:
           - ssm:GetParametersByPath
-          - ssm:PutParameter
-          - ssm:GetParameter
+          - ssm:DeleteParameters
         Resource:
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/*
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa
           - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/mfa/*
-      - Effect: Allow
-        Action:
-          - dynamodb:GetItem
-          - dynamodb:PutItem
-          - dynamodb:UpdateItem
-        Resource:
-          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_user
+    environment:
+      REST_API_KEY_NAME: ${param:restApiKeyName}
+      WS_API_KEY_NAME: ${param:wsApiKeyName}
+
+stepFunctions:
+  validate: true
+  stateMachines:
+    AuthRotateSecretsStateMachine:
+      events:
+        - schedule:
+            method: scheduler
+            rate:
+              - rate(90 days)
+            input: {}
+      name: AuthRotateSecretsStateMachine
+      definition:
+        StartAt: AuthUpdateSecrets
+        States:
+          AuthUpdateSecrets:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: >-
+                arn:aws:lambda:${param:region}:${aws:accountId}:function:${self:service}-${sls:stage}-sf-update-secrets:$LATEST
+              Payload.$: $
+            Retry:
+              - ErrorEquals:
+                  - States.ALL
+                IntervalSeconds: 1
+                MaxAttempts: 3
+                BackoffRate: 2
+                JitterStrategy: FULL
+            Next: AuthUpdateSecretsChoice
+            OutputPath: $.Payload
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                Next: Fail
+          AuthUpdateSecretsChoice:
+            Type: Choice
+            Default: AuthUpdateSecretsWait
+            Choices:
+              - And:
+                  - Variable: $.is_continue
+                    IsPresent: true
+                  - Variable: $.is_continue
+                    BooleanEquals: true
+                Next: AuthUpdateSecrets
+          AuthUpdateSecretsWait:
+            Type: Wait
+            Next: AuthDeleteOldSecrets
+            Seconds: 86400
+          AuthDeleteOldSecrets:
+            Type: Task
+            Resource: arn:aws:states:::lambda:invoke
+            Parameters:
+              FunctionName: >-
+                arn:aws:lambda:${param:region}:${aws:accountId}:function:${self:service}-${sls:stage}-sf-delete-old-secrets:$LATEST
+              Payload.$: $
+            Retry:
+              - ErrorEquals:
+                  - States.ALL
+                IntervalSeconds: 1
+                MaxAttempts: 3
+                BackoffRate: 2
+                JitterStrategy: FULL
+            Next: Success
+            OutputPath: $.Payload
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                Next: Fail
+          Success:
+            Type: Succeed
+          Fail:
+            Type: Fail
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work
@@ -161,3 +236,4 @@ plugins:
   - serverless-prune-plugin
   - serverless-iam-roles-per-function
   - serverless-deployment-bucket
+  - serverless-step-functions

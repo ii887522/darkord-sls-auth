@@ -109,7 +109,7 @@ async fn handler(
     if let Err(err) = event.log() {
         let api_resp = ApiResponse {
             code: 4000,
-            message: &err.to_string(),
+            message: err.to_string(),
             request_id: &context.request_id,
             ..Default::default()
         };
@@ -144,7 +144,7 @@ async fn handler(
         Err(err) => {
             let api_resp = ApiResponse {
                 code: 4001,
-                message: &err.to_string(),
+                message: err.to_string(),
                 request_id: &context.request_id,
                 ..Default::default()
             };

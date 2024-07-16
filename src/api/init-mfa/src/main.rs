@@ -63,7 +63,7 @@ async fn handler(
     if let Err(err) = event.log() {
         let api_resp = ApiResponse {
             code: 4000,
-            message: &err.to_string(),
+            message: err.to_string(),
             request_id: &context.request_id,
             ..Default::default()
         };
@@ -115,7 +115,7 @@ async fn handler(
     let mfa_secret = Secret::default().to_encoded().to_string();
 
     // Encrypt and save the MFA secret into this user record
-    let save_task = user_db.set_mfa_secret(user_id, &mfa_secret);
+    let save_task = user_db.set_mfa_secret(user_id, &mfa_secret).send();
 
     // Kickstart the DB related tasks
     let (revoke_task_resp, get_user_detail_task_resp, save_task_resp) =

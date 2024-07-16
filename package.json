@@ -9,7 +9,9 @@
     "deploy:api:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-api:deploy function --stage stage --verbose -f",
     "deploy:db": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-db:deploy --stage stage --verbose",
     "deploy:funcs": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-funcs:deploy --stage stage --verbose",
-    "deploy:funcs:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-funcs:deploy function --stage stage --verbose -f"
+    "deploy:funcs:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-funcs:deploy function --stage stage --verbose -f",
+    "deploy:sf": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-sf:deploy --stage stage --verbose",
+    "deploy:sf:function": "cross-env AWS_SDK_LOAD_CONFIG=1 sls auth-sf:deploy function --stage stage --verbose -f"
   },
   "repository": {
     "type": "git",
@@ -29,6 +31,7 @@
     "serverless-iam-roles-per-function": "^3.2.0",
     "serverless-latest-layer-version": "^2.1.2",
     "serverless-prune-plugin": "^2.0.2",
-    "serverless-rust-plugin": "^0.3.3"
+    "serverless-rust-plugin": "^0.3.3",
+    "serverless-step-functions": "^3.21.0"
   }
 }

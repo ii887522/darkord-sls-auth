@@ -9,7 +9,7 @@ use common::{
 };
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
 use serde_json::{json, Value};
-use std::{collections::HashMap, panic::Location};
+use std::{collections::HashMap, panic::Location, time::Duration};
 
 #[derive(Debug)]
 struct Env {
@@ -149,58 +149,26 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
         let get_mfa_ssm_params_task_resp =
             get_mfa_ssm_params_task_resp.context(Location::caller())?;
 
-        // Update CloudFront distribution origin x-api-key to use the new one
-        let mut origin_map = get_cf_dist_cfg_task_resp
-            .distribution_config
-            .as_mut()
-            .unwrap()
-            .origins
-            .as_mut()
-            .unwrap()
-            .items
-            .iter_mut()
-            .map(|origin| (origin.domain_name.to_string(), origin))
-            .collect::<HashMap<_, _>>();
+        // Associate the generated API keys to the respective usage plans
+        let create_rest_api_usage_plan_key_task = env
+            .api_gateway
+            .create_usage_plan_key()
+            .usage_plan_id(&*auth_constants::REST_API_USAGE_PLAN_ID)
+            .key_id(create_rest_api_key_task_resp.id.unwrap())
+            .key_type("API_KEY")
+            .send();
 
-        origin_map
-            .get_mut(&*auth_constants::CF_ORIGIN_WS_API_DOMAIN_NAME)
-            .unwrap()
-            .custom_headers
-            .as_mut()
-            .unwrap()
-            .items
-            .as_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|header| header.header_name == "x-api-key")
-            .unwrap()
-            .header_value = create_ws_api_key_task_resp.value.unwrap_or_default();
-
-        origin_map
-            .get_mut(&*auth_constants::CF_ORIGIN_REST_API_DOMAIN_NAME)
-            .unwrap()
-            .custom_headers
-            .as_mut()
-            .unwrap()
-            .items
-            .as_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|header| header.header_name == "x-api-key")
-            .unwrap()
-            .header_value = create_rest_api_key_task_resp.value.unwrap_or_default();
-
-        let update_cf_dist_cfg_task = env
-            .cloudfront
-            .update_distribution()
-            .distribution_config(get_cf_dist_cfg_task_resp.distribution_config.unwrap())
-            .id(&*auth_constants::CF_DISTRIBUTION_ID)
-            .if_match(get_cf_dist_cfg_task_resp.e_tag.unwrap_or_default())
+        let create_ws_api_usage_plan_key_task = env
+            .api_gateway
+            .create_usage_plan_key()
+            .usage_plan_id(&*auth_constants::WS_API_USAGE_PLAN_ID)
+            .key_id(create_ws_api_key_task_resp.id.unwrap())
+            .key_type("API_KEY")
             .send();
 
         // Generate new JWT token and MFA secret SSM parameters
         let access_token_ssm_param_name = format!(
-            "{name}/v{version}",
+            "{name}/v{version:0>3}",
             name = auth_constants::ACCESS_TOKEN_PARAM_PATH,
             version = get_access_token_ssm_params_task_resp
                 .parameters
@@ -218,7 +186,7 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
         );
 
         let refresh_token_ssm_param_name = format!(
-            "{name}/v{version}",
+            "{name}/v{version:0>3}",
             name = auth_constants::REFRESH_TOKEN_PARAM_PATH,
             version = get_refresh_token_ssm_params_task_resp
                 .parameters
@@ -236,7 +204,7 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
         );
 
         let session_token_ssm_param_name = format!(
-            "{name}/v{version}",
+            "{name}/v{version:0>3}",
             name = auth_constants::SESSION_TOKEN_PARAM_PATH,
             version = get_session_token_ssm_params_task_resp
                 .parameters
@@ -254,7 +222,7 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
         );
 
         let mfa_ssm_param_name = format!(
-            "{name}/v{version}",
+            "{name}/v{version:0>3}",
             name = auth_constants::MFA_PARAM_PATH,
             version = get_mfa_ssm_params_task_resp
                 .parameters
@@ -316,23 +284,79 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
 
         // Kickstart AWS service related tasks
         let (
-            update_cf_dist_cfg_task_resp,
+            create_rest_api_usage_plan_key_task_resp,
+            create_ws_api_usage_plan_key_task_resp,
             put_access_token_ssm_param_task_resp,
             put_refresh_token_ssm_param_task_resp,
             put_session_token_ssm_param_task_resp,
             put_mfa_ssm_param_task_resp,
         ) = tokio::join!(
-            update_cf_dist_cfg_task,
+            create_rest_api_usage_plan_key_task,
+            create_ws_api_usage_plan_key_task,
             put_access_token_ssm_param_task,
             put_refresh_token_ssm_param_task,
             put_session_token_ssm_param_task,
-            put_mfa_ssm_param_task
+            put_mfa_ssm_param_task,
         );
-        update_cf_dist_cfg_task_resp.context(Location::caller())?;
+        create_rest_api_usage_plan_key_task_resp.context(Location::caller())?;
+        create_ws_api_usage_plan_key_task_resp.context(Location::caller())?;
         put_access_token_ssm_param_task_resp.context(Location::caller())?;
         put_refresh_token_ssm_param_task_resp.context(Location::caller())?;
         put_session_token_ssm_param_task_resp.context(Location::caller())?;
         put_mfa_ssm_param_task_resp.context(Location::caller())?;
+
+        // Update CloudFront distribution origin x-api-key to use the new one
+        let mut origin_map = get_cf_dist_cfg_task_resp
+            .distribution_config
+            .as_mut()
+            .unwrap()
+            .origins
+            .as_mut()
+            .unwrap()
+            .items
+            .iter_mut()
+            .map(|origin| (origin.domain_name.to_string(), origin))
+            .collect::<HashMap<_, _>>();
+
+        origin_map
+            .get_mut(&*auth_constants::CF_ORIGIN_WS_API_DOMAIN_NAME)
+            .unwrap()
+            .custom_headers
+            .as_mut()
+            .unwrap()
+            .items
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|header| header.header_name == "x-api-key")
+            .unwrap()
+            .header_value = create_ws_api_key_task_resp.value.unwrap_or_default();
+
+        origin_map
+            .get_mut(&*auth_constants::CF_ORIGIN_REST_API_DOMAIN_NAME)
+            .unwrap()
+            .custom_headers
+            .as_mut()
+            .unwrap()
+            .items
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|header| header.header_name == "x-api-key")
+            .unwrap()
+            .header_value = create_rest_api_key_task_resp.value.unwrap_or_default();
+
+        env.cloudfront
+            .update_distribution()
+            .distribution_config(get_cf_dist_cfg_task_resp.distribution_config.unwrap())
+            .id(&*auth_constants::CF_DISTRIBUTION_ID)
+            .if_match(get_cf_dist_cfg_task_resp.e_tag.unwrap_or_default())
+            .send()
+            .await
+            .context(Location::caller())?;
+
+        // Delay 5 seconds so that the MFA SSM parameter we just put is eventually consistent and we can get it
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 
     let user_db = AuthUserDb {

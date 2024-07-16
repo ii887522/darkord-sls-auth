@@ -195,6 +195,7 @@ pub struct AuthUserDb<'a> {
     pub ssm: Option<&'a aws_sdk_ssm::Client>,
 }
 
+#[optarg_impl]
 impl<'a> AuthUserDb<'a> {
     pub async fn put_item(
         &'a self,
@@ -343,7 +344,7 @@ impl<'a> AuthUserDb<'a> {
                     if user.pk.starts_with("Username#") {
                         let err = CommonError {
                             code: 4090,
-                            message: "Username already exists",
+                            message: "Username already exists".to_string(),
                         };
 
                         bail!(err);
@@ -352,7 +353,7 @@ impl<'a> AuthUserDb<'a> {
                     if user.pk.starts_with("EmailAddr#") {
                         let err = CommonError {
                             code: 4091,
-                            message: "Email address already exists",
+                            message: "Email address already exists".to_string(),
                         };
 
                         bail!(err);
@@ -427,7 +428,13 @@ impl<'a> AuthUserDb<'a> {
         Ok(())
     }
 
-    pub async fn set_mfa_secret(&'a self, user_id: u32, mfa_secret: &str) -> Result<()> {
+    #[optarg_method(AuthUserDbSetMfaSecretBuilder, send)]
+    pub async fn set_mfa_secret<'b>(
+        &'a self,
+        user_id: u32,
+        mfa_secret: &'b str,
+        #[optarg_default] expected_mfa_secret_version: u32,
+    ) -> Result<()> {
         // Fetch the latest version of MFA secret key
         // todo: Consider cache the result in this lambda environment
         let mfa_secret_key_params = self
@@ -453,7 +460,17 @@ impl<'a> AuthUserDb<'a> {
             .as_ref()
             .unwrap()
             .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
-            .unwrap();
+            .unwrap()
+            .parse::<u32>()?;
+
+        if expected_mfa_secret_version != 0 && mfa_secret_version != expected_mfa_secret_version {
+            let err = CommonError {
+                code: 5000,
+                message: format!("mfa_secret_version is outdated. Expect: {expected_mfa_secret_version}, Actual: {mfa_secret_version}"),
+            };
+
+            bail!(err);
+        }
 
         let db_resp = self
             .dynamodb
@@ -476,8 +493,7 @@ impl<'a> AuthUserDb<'a> {
                 .into_service_error();
 
             if let ConditionalCheckFailedException(_) = err {
-                let user_mfa =
-                    AuthUserMfa::new(user_id, encrypted_mfa_secret, mfa_secret_version.parse()?);
+                let user_mfa = AuthUserMfa::new(user_id, encrypted_mfa_secret, mfa_secret_version);
 
                 self.dynamodb
                     .put_item()
@@ -535,7 +551,7 @@ impl<'a> AuthUserDb<'a> {
                     .unwrap()
                     .get_parameter()
                     .name(format!(
-                        "{name}/v{version}",
+                        "{name}/v{version:0>3}",
                         name = auth_constants::MFA_PARAM_PATH,
                         version = user_mfa.version
                     ))
@@ -658,6 +674,7 @@ impl<'a> AuthUserDb<'a> {
         }
 
         self.set_mfa_secret(user_id, &mfa_secret)
+            .send()
             .await
             .context(Location::caller())
     }
