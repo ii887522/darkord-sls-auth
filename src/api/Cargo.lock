@@ -1159,6 +1159,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "lambda_runtime",
+ "magic-crypt",
  "serde",
  "serde_json",
  "tokio",

@@ -3,7 +3,7 @@ use auth_lib::{
     auth_constants,
     auth_enums::{Action, JwtToken},
     auth_jwt::{AuthAccessToken, AuthRefreshToken, AuthSessionToken, JwtTokenSecrets},
-    AuthError, AuthRbacDb, AuthUserContext, AuthValidTokenPairDb,
+    AuthError, AuthRbacDb, AuthRbacExt, AuthUserContext, AuthValidTokenPairDb,
 };
 use aws_config::BehaviorVersion;
 use aws_lambda_events::{
@@ -28,6 +28,7 @@ use lambda_runtime::{
 use optarg2chain::optarg_fn;
 use serde_json::{json, Map, Value};
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     panic::Location,
 };
@@ -36,6 +37,7 @@ use std::{
 struct Env {
     dynamodb: aws_sdk_dynamodb::Client,
     jwt_token_secrets_map: HashMap<u64, JwtTokenSecrets>,
+    rbac_cache: RefCell<HashMap<String, AuthRbacExt>>,
 }
 
 #[tokio::main]
@@ -127,6 +129,7 @@ async fn main() -> Result<(), Error> {
     let env = Env {
         dynamodb,
         jwt_token_secrets_map,
+        rbac_cache: RefCell::new(HashMap::new()),
     };
 
     run(service_fn(|event: LambdaEvent<Value>| async {
@@ -347,25 +350,46 @@ async fn auth_access_token(
         bail!(AuthError::Unauthorized);
     }
 
-    let method_arn = MethodArn::from(method_arn_str);
+    let MethodArn { method, path, .. } = MethodArn::from(method_arn_str);
 
-    // todo: Consider cache the result in this lambda environment
-    let rbac = AuthRbacDb {
-        dynamodb: &env.dynamodb,
-    }
-    .get_item(&method_arn.method, &method_arn.path)
-    .await
-    .context(Location::caller())?;
-
-    let policy_effect = if let Some(rbac) = rbac {
-        if rbac.roles.is_disjoint(&HashSet::from_iter(roles)) {
-            IamPolicyEffect::Deny
-        } else {
-            IamPolicyEffect::Allow
+    if !env
+        .rbac_cache
+        .borrow()
+        .contains_key(&format!("{method}_{path}"))
+        || env.rbac_cache.borrow()[&format!("{method}_{path}")].expired_at
+            <= common::get_current_timestamp()
+                .call()
+                .context(Location::caller())?
+    {
+        let rbac = AuthRbacDb {
+            dynamodb: &env.dynamodb,
         }
-    } else {
-        IamPolicyEffect::Deny
-    };
+        .get_item(&method, &path)
+        .await
+        .context(Location::caller())?;
+
+        env.rbac_cache.borrow_mut().insert(
+            format!("{method}_{path}"),
+            AuthRbacExt {
+                rbac,
+                expired_at: common::extend_current_timestamp()
+                    .hours(1)
+                    .call()
+                    .context(Location::caller())?,
+            },
+        );
+    }
+
+    let policy_effect =
+        if let Some(rbac) = &env.rbac_cache.borrow()[&format!("{method}_{path}")].rbac {
+            if rbac.roles.is_disjoint(&HashSet::from_iter(roles)) {
+                IamPolicyEffect::Deny
+            } else {
+                IamPolicyEffect::Allow
+            }
+        } else {
+            IamPolicyEffect::Deny
+        };
 
     let policy = gen_policy(
         method_arn_str.to_string(),

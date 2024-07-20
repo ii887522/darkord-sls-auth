@@ -167,24 +167,23 @@ async fn handler(
 
     let verification_code = common::gen_secret_digits().call();
 
-    let user_id = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    }
-    .put_item(
-        req.username.to_string(),
-        req.email_addr.to_string(),
-        req.password,
-        req.locale,
-        req.extra,
-        verification_code.to_string(),
-        common::extend_current_timestamp()
-            .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
-            .call()
-            .context(Location::caller())?,
-    )
-    .await
-    .context(Location::caller());
+    let user_id = AuthUserDb::new(&env.dynamodb)
+        .ssm(&env.ssm)
+        .call()
+        .put_item(
+            req.username.to_string(),
+            req.email_addr.to_string(),
+            req.password,
+            req.locale,
+            req.extra,
+            verification_code.to_string(),
+            common::extend_current_timestamp()
+                .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
+                .call()
+                .context(Location::caller())?,
+        )
+        .await
+        .context(Location::caller());
 
     let user_id = match user_id {
         Ok(user_id) => user_id,

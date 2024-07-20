@@ -124,11 +124,7 @@ async fn handler(
 
     let user_id = user_ctx.sub.parse().context(Location::caller())?;
 
-    let user_db = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: None,
-    };
-
+    let user_db = AuthUserDb::new(&env.dynamodb).call();
     let update_task = user_db.set_password(user_id, &req.password);
 
     // Kickstart the DB related tasks

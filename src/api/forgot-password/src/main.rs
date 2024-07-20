@@ -129,10 +129,7 @@ async fn handler(
         }
     };
 
-    let user_db = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: None,
-    };
+    let user_db = AuthUserDb::new(&env.dynamodb).call();
 
     let user_id = user_db
         .get_user_id(&req.email_addr)

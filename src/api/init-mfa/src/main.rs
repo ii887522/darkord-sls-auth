@@ -1,21 +1,25 @@
 use anyhow::{Context as _, Result};
-use auth_lib::{auth_enums::Action, AuthAttemptDb, AuthUserContext, AuthUserDb};
+use auth_lib::{auth_constants, auth_enums::Action, AuthAttemptDb, AuthUserContext, AuthUserDb};
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::{ApiGatewayProxyRequest, ApiGatewayProxyResponse};
+use aws_sdk_ssm::types::Parameter;
 use common::{
     common_tracing::{self, Logger},
     ApiResponse,
 };
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
+use magic_crypt::{new_magic_crypt, MagicCrypt256};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::panic::Location;
+use std::{mem, panic::Location};
 use totp_rs::Secret;
 
 #[derive(Debug)]
 struct Env {
     dynamodb: aws_sdk_dynamodb::Client,
     ssm: aws_sdk_ssm::Client,
+    mfa_secret_key: MagicCrypt256,
+    mfa_secret_version: u32,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize)]
@@ -30,7 +34,32 @@ async fn main() -> Result<(), Error> {
     let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
     let dynamodb = aws_sdk_dynamodb::Client::new(&config);
     let ssm = aws_sdk_ssm::Client::new(&config);
-    let env = Env { dynamodb, ssm };
+
+    // Fetch the latest version of MFA secret key
+    let mfa_secret_param = mem::replace(
+        ssm.get_parameters_by_path()
+            .path(auth_constants::MFA_PARAM_PATH)
+            .with_decryption(true)
+            .send()
+            .await?
+            .parameters
+            .unwrap()
+            .last_mut()
+            .unwrap(),
+        Parameter::builder().build(),
+    );
+
+    let env = Env {
+        dynamodb,
+        ssm,
+        mfa_secret_key: new_magic_crypt!(mfa_secret_param.value.unwrap(), 256),
+        mfa_secret_version: mfa_secret_param
+            .name
+            .unwrap()
+            .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
+            .unwrap()
+            .parse()?,
+    };
 
     run(service_fn(
         |event: LambdaEvent<ApiGatewayProxyRequest>| async {
@@ -97,10 +126,11 @@ async fn handler(
 
     let user_id = user_ctx.sub.parse().context(Location::caller())?;
 
-    let user_db = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    };
+    let user_db = AuthUserDb::new(&env.dynamodb)
+        .ssm(&env.ssm)
+        .mfa_secret_key(&env.mfa_secret_key)
+        .mfa_secret_version(env.mfa_secret_version)
+        .call();
 
     // Revoke this session token
     let revoke_task = attempt_db

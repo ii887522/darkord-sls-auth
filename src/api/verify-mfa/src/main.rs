@@ -188,13 +188,12 @@ async fn handler(
 
     let user_id = user_ctx.sub.parse().context(Location::caller())?;
 
-    let mfa_secret = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    }
-    .get_mfa_secret(user_id)
-    .await
-    .context(Location::caller())?;
+    let mfa_secret = AuthUserDb::new(&env.dynamodb)
+        .ssm(&env.ssm)
+        .call()
+        .get_mfa_secret(user_id)
+        .await
+        .context(Location::caller())?;
 
     if mfa_secret.is_empty() {
         let api_resp = ApiResponse {

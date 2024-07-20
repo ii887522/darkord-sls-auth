@@ -157,11 +157,7 @@ async fn handler(
     }
 
     let user_id = user_ctx.sub.parse().context(Location::caller())?;
-
-    let user_db = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    };
+    let user_db = AuthUserDb::new(&env.dynamodb).ssm(&env.ssm).call();
 
     let verification_code = user_db
         .get_verification_code(user_id)

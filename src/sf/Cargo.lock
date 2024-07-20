@@ -1787,6 +1787,7 @@ dependencies = [
  "aws-sdk-ssm",
  "common",
  "lambda_runtime",
+ "magic-crypt",
  "serde",
  "serde_json",
  "tokio",

@@ -48,7 +48,7 @@ pub struct AuthValidTokenPairDb<'a> {
 
 impl<'a> AuthValidTokenPairDb<'a> {
     pub async fn put_item(
-        &'a self,
+        &self,
         refresh_token_jti: String,
         access_token_jti: String,
         expired_at: u64,
@@ -70,11 +70,7 @@ impl<'a> AuthValidTokenPairDb<'a> {
         Ok(())
     }
 
-    pub async fn update_item(
-        &'a self,
-        refresh_token_jti: &str,
-        access_token_jti: &str,
-    ) -> Result<()> {
+    pub async fn update_item(&self, refresh_token_jti: &str, access_token_jti: &str) -> Result<()> {
         let db_resp = self
             .dynamodb
             .update_item()
@@ -112,7 +108,7 @@ impl<'a> AuthValidTokenPairDb<'a> {
         Ok(())
     }
 
-    pub async fn get_item(&'a self, refresh_token_jti: &str) -> Result<Option<AuthValidTokenPair>> {
+    pub async fn get_item(&self, refresh_token_jti: &str) -> Result<Option<AuthValidTokenPair>> {
         let db_resp = self
             .dynamodb
             .get_item()
@@ -132,7 +128,7 @@ impl<'a> AuthValidTokenPairDb<'a> {
         })
     }
 
-    pub async fn delete_item(&'a self, refresh_token_jti: &str) -> Result<()> {
+    pub async fn delete_item(&self, refresh_token_jti: &str) -> Result<()> {
         let db_resp = self
             .dynamodb
             .delete_item()

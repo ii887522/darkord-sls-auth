@@ -12,11 +12,14 @@ use aws_sdk_dynamodb::{
     },
 };
 use common::CommonError;
-use magic_crypt::{new_magic_crypt, MagicCryptTrait};
+use magic_crypt::{new_magic_crypt, MagicCrypt256, MagicCryptTrait};
 use optarg2chain::optarg_impl;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::{collections::HashSet, panic::Location};
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet},
+    panic::Location,
+};
 
 #[derive(
     Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
@@ -189,16 +192,35 @@ impl AuthUserMfa {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct AuthUserDb<'a> {
-    pub dynamodb: &'a aws_sdk_dynamodb::Client,
-    pub ssm: Option<&'a aws_sdk_ssm::Client>,
+    dynamodb: &'a aws_sdk_dynamodb::Client,
+    ssm: Option<&'a aws_sdk_ssm::Client>,
+    mfa_secret_key: Option<&'a MagicCrypt256>,
+    mfa_secret_version: u32,
+    mfa_secret_key_cache: HashMap<u32, MagicCrypt256>,
 }
 
 #[optarg_impl]
 impl<'a> AuthUserDb<'a> {
+    #[optarg_method(AuthUserDbNewBuilder, call)]
+    pub fn new(
+        dynamodb: &'a aws_sdk_dynamodb::Client,
+        #[optarg_default] ssm: Option<&'a aws_sdk_ssm::Client>,
+        #[optarg_default] mfa_secret_key: Option<&'a MagicCrypt256>,
+        #[optarg_default] mfa_secret_version: u32,
+    ) -> Self {
+        Self {
+            dynamodb,
+            ssm,
+            mfa_secret_key,
+            mfa_secret_version,
+            mfa_secret_key_cache: HashMap::new(),
+        }
+    }
+
     pub async fn put_item(
-        &'a self,
+        &self,
         username: String,
         email_addr: String,
         password: String,
@@ -369,7 +391,7 @@ impl<'a> AuthUserDb<'a> {
         Ok(user_id)
     }
 
-    pub async fn get_verification_code(&'a self, user_id: u32) -> Result<String> {
+    pub async fn get_verification_code(&self, user_id: u32) -> Result<String> {
         let db_resp = self
             .dynamodb
             .get_item()
@@ -398,7 +420,7 @@ impl<'a> AuthUserDb<'a> {
     }
 
     pub async fn mark_attrs_as_verified(
-        &'a self,
+        &self,
         user_id: u32,
         attrs: HashSet<UserAttr>,
     ) -> Result<()> {
@@ -435,38 +457,17 @@ impl<'a> AuthUserDb<'a> {
         mfa_secret: &'b str,
         #[optarg_default] expected_mfa_secret_version: u32,
     ) -> Result<()> {
-        // Fetch the latest version of MFA secret key
-        // todo: Consider cache the result in this lambda environment
-        let mfa_secret_key_params = self
-            .ssm
+        let encrypted_mfa_secret = self
+            .mfa_secret_key
             .unwrap()
-            .get_parameters_by_path()
-            .path(auth_constants::MFA_PARAM_PATH)
-            .with_decryption(true)
-            .send()
-            .await
-            .context(Location::caller())?
-            .parameters
-            .unwrap();
+            .encrypt_str_to_base64(mfa_secret);
 
-        let mfa_secret_key_param = mfa_secret_key_params.last().unwrap();
-
-        let encrypted_mfa_secret =
-            new_magic_crypt!(mfa_secret_key_param.value.as_ref().unwrap(), 256)
-                .encrypt_str_to_base64(mfa_secret);
-
-        let mfa_secret_version = mfa_secret_key_param
-            .name
-            .as_ref()
-            .unwrap()
-            .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
-            .unwrap()
-            .parse::<u32>()?;
-
-        if expected_mfa_secret_version != 0 && mfa_secret_version != expected_mfa_secret_version {
+        if expected_mfa_secret_version != 0
+            && self.mfa_secret_version != expected_mfa_secret_version
+        {
             let err = CommonError {
                 code: 5000,
-                message: format!("mfa_secret_version is outdated. Expect: {expected_mfa_secret_version}, Actual: {mfa_secret_version}"),
+                message: format!("mfa_secret_version is outdated. Expect: {expected_mfa_secret_version}, Actual: {mfa_secret_version}", mfa_secret_version = self.mfa_secret_version),
             };
 
             bail!(err);
@@ -481,7 +482,10 @@ impl<'a> AuthUserDb<'a> {
             .update_expression("SET secret = :s, version = :v")
             .condition_expression("attribute_exists(pk)")
             .expression_attribute_values(":s", AttributeValue::S(encrypted_mfa_secret.to_string()))
-            .expression_attribute_values(":v", AttributeValue::N(mfa_secret_version.to_string()))
+            .expression_attribute_values(
+                ":v",
+                AttributeValue::N(self.mfa_secret_version.to_string()),
+            )
             .send()
             .await
             .context(Location::caller());
@@ -493,7 +497,8 @@ impl<'a> AuthUserDb<'a> {
                 .into_service_error();
 
             if let ConditionalCheckFailedException(_) = err {
-                let user_mfa = AuthUserMfa::new(user_id, encrypted_mfa_secret, mfa_secret_version);
+                let user_mfa =
+                    AuthUserMfa::new(user_id, encrypted_mfa_secret, self.mfa_secret_version);
 
                 self.dynamodb
                     .put_item()
@@ -513,7 +518,7 @@ impl<'a> AuthUserDb<'a> {
         Ok(())
     }
 
-    pub async fn get_detail(&'a self, user_id: u32) -> Result<Option<AuthUserDetail>> {
+    pub async fn get_detail(&self, user_id: u32) -> Result<Option<AuthUserDetail>> {
         let db_resp = self
             .dynamodb
             .get_item()
@@ -530,7 +535,7 @@ impl<'a> AuthUserDb<'a> {
         })
     }
 
-    pub async fn get_mfa_secret(&'a self, user_id: u32) -> Result<String> {
+    pub async fn get_mfa_secret(&mut self, user_id: u32) -> Result<String> {
         let db_resp = self
             .dynamodb
             .get_item()
@@ -545,28 +550,31 @@ impl<'a> AuthUserDb<'a> {
         if let Some(item) = db_resp.item {
             let user_mfa: AuthUserMfa = serde_dynamo::from_item(item).context(Location::caller())?;
 
-            let magic_crypt = new_magic_crypt!(
-                // todo: Consider cache the result in this lambda environment
-                self.ssm
-                    .unwrap()
-                    .get_parameter()
-                    .name(format!(
-                        "{name}/v{version:0>3}",
-                        name = auth_constants::MFA_PARAM_PATH,
-                        version = user_mfa.version
-                    ))
-                    .with_decryption(true)
-                    .send()
-                    .await
-                    .context(Location::caller())?
-                    .parameter
-                    .unwrap()
-                    .value
-                    .unwrap(),
-                256
-            );
+            if let Entry::Vacant(entry) = self.mfa_secret_key_cache.entry(user_mfa.version) {
+                let mfa_secret_key = new_magic_crypt!(
+                    self.ssm
+                        .unwrap()
+                        .get_parameter()
+                        .name(format!(
+                            "{name}/v{version:0>3}",
+                            name = auth_constants::MFA_PARAM_PATH,
+                            version = user_mfa.version
+                        ))
+                        .with_decryption(true)
+                        .send()
+                        .await
+                        .context(Location::caller())?
+                        .parameter
+                        .unwrap()
+                        .value
+                        .unwrap(),
+                    256
+                );
 
-            let mfa_secret = magic_crypt
+                entry.insert(mfa_secret_key);
+            };
+
+            let mfa_secret = self.mfa_secret_key_cache[&user_mfa.version]
                 .decrypt_base64_to_string(user_mfa.secret)
                 .context(Location::caller())?;
 
@@ -576,7 +584,7 @@ impl<'a> AuthUserDb<'a> {
         Ok("".to_string())
     }
 
-    pub async fn get_user_id(&'a self, email_addr: &str) -> Result<Option<u32>> {
+    pub async fn get_user_id(&self, email_addr: &str) -> Result<Option<u32>> {
         let db_resp = self
             .dynamodb
             .get_item()
@@ -596,7 +604,7 @@ impl<'a> AuthUserDb<'a> {
     }
 
     pub async fn set_verification_code(
-        &'a self,
+        &self,
         user_id: u32,
         verification_code: String,
     ) -> Result<()> {
@@ -647,7 +655,7 @@ impl<'a> AuthUserDb<'a> {
         Ok(())
     }
 
-    pub async fn set_password(&'a self, user_id: u32, password: &str) -> Result<()> {
+    pub async fn set_password(&self, user_id: u32, password: &str) -> Result<()> {
         self.dynamodb
             .update_item()
             .table_name(&*auth_constants::AUTH_USER_TABLE_NAME)
@@ -663,7 +671,7 @@ impl<'a> AuthUserDb<'a> {
         Ok(())
     }
 
-    pub async fn rotate_mfa_secret(&'a self, user_id: u32) -> Result<()> {
+    pub async fn rotate_mfa_secret(&mut self, user_id: u32) -> Result<()> {
         let mfa_secret = self
             .get_mfa_secret(user_id)
             .await
@@ -679,7 +687,7 @@ impl<'a> AuthUserDb<'a> {
             .context(Location::caller())
     }
 
-    pub async fn get_next_user_id(&'a self) -> Result<u32> {
+    pub async fn get_next_user_id(&self) -> Result<u32> {
         let db_resp = self
             .dynamodb
             .get_item()

@@ -22,13 +22,20 @@ pub struct AuthRbac {
     pub roles: HashSet<Role>,
 }
 
+// For Lambda use only
+#[derive(Debug, PartialEq)]
+pub struct AuthRbacExt {
+    pub rbac: Option<AuthRbac>,
+    pub expired_at: u64,
+}
+
 #[derive(Debug)]
 pub struct AuthRbacDb<'a> {
     pub dynamodb: &'a aws_sdk_dynamodb::Client,
 }
 
 impl<'a> AuthRbacDb<'a> {
-    pub async fn get_item(&'a self, method: &str, path: &str) -> Result<Option<AuthRbac>> {
+    pub async fn get_item(&self, method: &str, path: &str) -> Result<Option<AuthRbac>> {
         let db_resp = self
             .dynamodb
             .get_item()

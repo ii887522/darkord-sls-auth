@@ -17,6 +17,7 @@ pub use auth_attempt::AuthAttemptDbIsBlockedBuilder;
 pub use auth_error::AuthError;
 pub use auth_rbac::AuthRbac;
 pub use auth_rbac::AuthRbacDb;
+pub use auth_rbac::AuthRbacExt;
 pub use auth_user::AuthUser;
 pub use auth_user::AuthUserDb;
 pub use auth_user::AuthUserDetail;

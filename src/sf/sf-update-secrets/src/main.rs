@@ -2,14 +2,15 @@ use advanced_random_string::{charset, random_string};
 use anyhow::{Context as _, Result};
 use auth_lib::{auth_constants, auth_sf_models::UpdateSecretsResponse, AuthUserDb};
 use aws_config::BehaviorVersion;
-use aws_sdk_ssm::types::ParameterType;
+use aws_sdk_ssm::types::{Parameter, ParameterType};
 use common::{
     self,
     common_tracing::{self, Logger},
 };
 use lambda_runtime::{run, service_fn, tracing::error, Context, Error, LambdaEvent};
+use magic_crypt::new_magic_crypt;
 use serde_json::{json, Value};
-use std::{collections::HashMap, panic::Location, time::Duration};
+use std::{collections::HashMap, mem, panic::Location, time::Duration};
 
 #[derive(Debug)]
 struct Env {
@@ -359,10 +360,35 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
         tokio::time::sleep(Duration::from_secs(5)).await;
     }
 
-    let user_db = AuthUserDb {
-        dynamodb: &env.dynamodb,
-        ssm: Some(&env.ssm),
-    };
+    // Fetch the latest version of MFA secret key
+    let mfa_secret_param = mem::replace(
+        env.ssm
+            .get_parameters_by_path()
+            .path(auth_constants::MFA_PARAM_PATH)
+            .with_decryption(true)
+            .send()
+            .await?
+            .parameters
+            .unwrap()
+            .last_mut()
+            .unwrap(),
+        Parameter::builder().build(),
+    );
+
+    let mfa_secret_key = new_magic_crypt!(mfa_secret_param.value.unwrap(), 256);
+
+    let mfa_secret_version = mfa_secret_param
+        .name
+        .unwrap()
+        .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
+        .unwrap()
+        .parse::<u32>()?;
+
+    let mut user_db = AuthUserDb::new(&env.dynamodb)
+        .ssm(&env.ssm)
+        .mfa_secret_key(&mfa_secret_key)
+        .mfa_secret_version(mfa_secret_version)
+        .call();
 
     let (start_user_id, end_user_id) = if let Some(update_secrets_resp) = update_secrets_resp {
         (
