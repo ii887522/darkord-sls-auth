@@ -89,7 +89,6 @@ package:
 functions:
   sign-up:
     handler: sign-up
-    memorySize: 256
     package:
       patterns:
         - "sign-up/**"
@@ -190,7 +189,6 @@ functions:
       MAX_INIT_MFA_ATTEMPT: ${param:maxInitMfaAttempt}
   login:
     handler: login
-    memorySize: 256
     package:
       patterns:
         - "login/**"
@@ -331,7 +329,6 @@ functions:
           private: true
   reset-password:
     handler: reset-password
-    memorySize: 256
     package:
       patterns:
         - "reset-password/**"
