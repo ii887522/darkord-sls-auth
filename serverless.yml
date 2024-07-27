@@ -1,0 +1,90 @@
+service: auth
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  deploymentMethod: direct
+  profile: ${param:profile}
+  region: ${param:region}
+  runtime: provided.al2023
+  memorySize: ${param:memorySize}
+  architecture: arm64
+  logRetentionInDays: ${param:logRetentionInDays}
+  disableRollback: ${param:disableRollback}
+  deploymentBucket:
+    name: darkord-sls-${sls:stage}-deployment-bucket
+    serverSideEncryption: AES256
+  environment:
+    RUST_LOG: ${param:logLevel}
+    REGION: ${param:region}
+    STAGE: ${sls:stage}
+    STAGE_PREFIX: ${param:stagePrefix}
+    STAGE_DASH_PREFIX: ${param:stageDashPrefix}
+  # For now it is sufficient to not use AWS X-Ray tracing to develop this microservice. Comment out to save cost
+  # tracing:
+  #   lambda: true
+
+params:
+  stage:
+    profile: darkord-stage
+    region: us-east-1
+    memorySize: 128
+    logRetentionInDays: 7
+    disableRollback: true
+    logLevel: INFO
+    stagePrefix: stage_
+    stageDashPrefix: stage-
+
+  prod:
+    profile: darkord
+    region: ap-southeast-1
+    memorySize: 256
+    logRetentionInDays: 14
+    disableRollback: false
+    logLevel: INFO
+    stagePrefix: ""
+    stageDashPrefix: ""
+
+custom:
+  deploymentBucket:
+    blockPublicAccess: true
+  prune:
+    automatic: true
+    includeLayers: true
+    number: 5
+  rust:
+    cargoLambda:
+      docker: false
+
+package:
+  individually: true
+  patterns:
+    - "!**"
+
+functions:
+  authorize:
+    handler: auth.authorize
+    package:
+      patterns:
+        - "functions/authorize/**"
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - ssm:GetParametersByPath
+        Resource:
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/access
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/refresh
+          - arn:aws:ssm:${param:region}:${aws:accountId}:parameter/auth/api/token/session
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+        Resource:
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_valid_token_pair
+          - arn:aws:dynamodb:${param:region}:${aws:accountId}:table/${param:stagePrefix}auth_rbac
+
+plugins:
+  - serverless-better-credentials # Must be the first one in this list for this to work
+  - serverless-rust-plugin
+  - serverless-prune-plugin
+  - serverless-iam-roles-per-function
+  - serverless-deployment-bucket

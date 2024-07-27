@@ -11,11 +11,5 @@
     "-A",
     "clippy::needless_lifetimes"
   ],
-  "rust-analyzer.checkOnSave": true,
-  "rust-analyzer.linkedProjects": [
-    "src/api/Cargo.toml",
-    "src/auth-lib/Cargo.toml",
-    "src/funcs/Cargo.toml",
-    "src/sf/Cargo.toml"
-  ]
+  "rust-analyzer.checkOnSave": true
 }
