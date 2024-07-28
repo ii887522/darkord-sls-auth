@@ -77,9 +77,6 @@ custom:
     automatic: true
     includeLayers: true
     number: 5
-  rust:
-    cargoLambda:
-      docker: false
 
 package:
   individually: true
@@ -88,7 +85,7 @@ package:
 
 functions:
   sign-up:
-    handler: auth.sign-up
+    handler: sign-up
     package:
       patterns:
         - "functions/sign-up/**"
@@ -119,7 +116,7 @@ functions:
     environment:
       MAX_SIGN_UP_ATTEMPT: ${param:maxSignUpAttempt}
   verify-attr:
-    handler: auth.verify-attr
+    handler: verify-attr
     package:
       patterns:
         - "functions/verify-attr/**"
@@ -153,7 +150,7 @@ functions:
     environment:
       MAX_VERIFY_ATTR_ATTEMPT: ${param:maxVerifyAttrAttempt}
   init-mfa:
-    handler: auth.init-mfa
+    handler: init-mfa
     package:
       patterns:
         - "functions/init-mfa/**"
@@ -188,7 +185,7 @@ functions:
     environment:
       MAX_INIT_MFA_ATTEMPT: ${param:maxInitMfaAttempt}
   login:
-    handler: auth.login
+    handler: login
     package:
       patterns:
         - "functions/login/**"
@@ -218,7 +215,7 @@ functions:
     environment:
       MAX_LOGIN_ATTEMPT: ${param:maxLoginAttempt}
   verify-mfa:
-    handler: auth.verify-mfa
+    handler: verify-mfa
     package:
       patterns:
         - "functions/verify-mfa/**"
@@ -262,7 +259,7 @@ functions:
     environment:
       MAX_VERIFY_MFA_ATTEMPT: ${param:maxVerifyMfaAttempt}
   refresh:
-    handler: auth.refresh
+    handler: refresh
     package:
       patterns:
         - "functions/refresh/**"
@@ -286,7 +283,7 @@ functions:
             type: TOKEN
             authorizerId: ${param:authorizerId}
   logout:
-    handler: auth.logout
+    handler: logout
     package:
       patterns:
         - "functions/logout/**"
@@ -305,7 +302,7 @@ functions:
             type: TOKEN
             authorizerId: ${param:authorizerId}
   forgot-password:
-    handler: auth.forgot-password
+    handler: forgot-password
     package:
       patterns:
         - "functions/forgot-password/**"
@@ -328,7 +325,7 @@ functions:
           path: /auth/forgot_password
           private: true
   reset-password:
-    handler: auth.reset-password
+    handler: reset-password
     package:
       patterns:
         - "functions/reset-password/**"
@@ -358,7 +355,7 @@ functions:
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work
-  - serverless-rust-plugin
+  - "@ii887522/serverless-rust-plugin"
   - serverless-prune-plugin
   - serverless-iam-roles-per-function
   - serverless-deployment-bucket

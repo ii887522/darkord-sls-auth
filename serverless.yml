@@ -52,9 +52,6 @@ custom:
     automatic: true
     includeLayers: true
     number: 5
-  rust:
-    cargoLambda:
-      docker: false
 
 package:
   individually: true
@@ -63,7 +60,7 @@ package:
 
 functions:
   authorize:
-    handler: auth.authorize
+    handler: authorize
     package:
       patterns:
         - "functions/authorize/**"
@@ -84,7 +81,7 @@ functions:
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work
-  - serverless-rust-plugin
+  - "@ii887522/serverless-rust-plugin"
   - serverless-prune-plugin
   - serverless-iam-roles-per-function
   - serverless-deployment-bucket
