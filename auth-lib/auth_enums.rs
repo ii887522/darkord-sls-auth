@@ -48,7 +48,7 @@ impl Action {
 }
 
 impl Display for Action {
-    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
             "{}",

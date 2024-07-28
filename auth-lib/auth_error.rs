@@ -9,7 +9,7 @@ pub enum AuthError {
 }
 
 impl Display for AuthError {
-    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         write!(formatter, "{self:?}")
     }
 }

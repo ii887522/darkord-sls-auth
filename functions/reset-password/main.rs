@@ -1,3 +1,5 @@
+#![deny(elided_lifetimes_in_paths)]
+
 use anyhow::{Context as _, Result};
 use auth_lib::{auth_enums::Action, AuthAttemptDb, AuthUserContext, AuthUserDb};
 use aws_config::BehaviorVersion;

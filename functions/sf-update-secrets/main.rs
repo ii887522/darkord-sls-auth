@@ -1,3 +1,5 @@
+#![deny(elided_lifetimes_in_paths)]
+
 use advanced_random_string::{charset, random_string};
 use anyhow::{Context as _, Result};
 use auth_lib::{auth_constants, auth_sf_models::UpdateSecretsResponse, AuthUserDb};

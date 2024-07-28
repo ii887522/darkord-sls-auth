@@ -1,3 +1,5 @@
+#![deny(elided_lifetimes_in_paths)]
+
 use anyhow::{bail, Context as _, Result};
 use auth_lib::{
     auth_constants,

@@ -1,3 +1,5 @@
+#![deny(elided_lifetimes_in_paths)]
+
 use anyhow::{Context as _, Result};
 use auth_lib::{AuthUserContext, AuthValidTokenPairDb};
 use aws_config::BehaviorVersion;

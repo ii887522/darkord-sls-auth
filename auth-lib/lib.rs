@@ -1,3 +1,5 @@
+#![deny(elided_lifetimes_in_paths)]
+
 pub mod auth_attempt;
 pub mod auth_constants;
 pub mod auth_enums;
