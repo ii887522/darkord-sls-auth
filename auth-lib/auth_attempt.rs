@@ -76,11 +76,11 @@ pub struct AuthAttemptDb<'a> {
 #[optarg_impl]
 impl<'a> AuthAttemptDb<'a> {
     #[optarg_method(AuthAttemptDbGetItemBuilder, send)]
-    pub async fn get_attempt<'b>(
-        &'a self,
+    pub async fn get_attempt<'b, 'c>(
+        &'b self,
         action: Action,
-        #[optarg_default] ip_addr: &'b str,
-        #[optarg_default] jti: &'b str,
+        #[optarg_default] ip_addr: &'c str,
+        #[optarg_default] jti: &'c str,
     ) -> Result<Option<AuthAttempt>> {
         let db_resp = self
             .dynamodb
@@ -113,11 +113,11 @@ impl<'a> AuthAttemptDb<'a> {
     }
 
     #[optarg_method(AuthAttemptDbIsBlockedBuilder, send)]
-    pub async fn is_blocked<'b>(
-        &'a self,
+    pub async fn is_blocked<'b, 'c>(
+        &'b self,
         action: Action,
-        #[optarg_default] ip_addr: &'b str,
-        #[optarg_default] jti: &'b str,
+        #[optarg_default] ip_addr: &'c str,
+        #[optarg_default] jti: &'c str,
     ) -> Result<bool> {
         if let Some(attempt) = self
             .get_attempt(action)
@@ -140,11 +140,11 @@ impl<'a> AuthAttemptDb<'a> {
     }
 
     #[optarg_method(AuthAttemptDbIncrBuilder, send)]
-    pub async fn incr<'b>(
-        &'a self,
+    pub async fn incr<'b, 'c>(
+        &'b self,
         action: Action,
-        #[optarg_default] ip_addr: &'b str,
-        #[optarg_default] jti: &'b str,
+        #[optarg_default] ip_addr: &'c str,
+        #[optarg_default] jti: &'c str,
         #[optarg(1)] attempt: u32,
         #[optarg_default] is_permanent: bool,
     ) -> Result<()> {

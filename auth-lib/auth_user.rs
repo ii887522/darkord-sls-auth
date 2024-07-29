@@ -458,10 +458,10 @@ impl<'a> AuthUserDb<'a> {
     }
 
     #[optarg_method(AuthUserDbSetMfaSecretBuilder, send)]
-    pub async fn set_mfa_secret<'b>(
-        &'a self,
+    pub async fn set_mfa_secret<'b, 'c>(
+        &'b self,
         user_id: u32,
-        mfa_secret: &'b str,
+        mfa_secret: &'c str,
         #[optarg_default] expected_mfa_secret_version: u32,
     ) -> Result<()> {
         if expected_mfa_secret_version != 0
