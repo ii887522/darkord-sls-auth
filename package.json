@@ -22,7 +22,7 @@
   },
   "homepage": "https://github.com/ii887522/darkord-sls-auth#readme",
   "devDependencies": {
-    "@ii887522/serverless-rust-plugin": "^0.1.0",
+    "@ii887522/serverless-rust-plugin": "^0.1.1",
     "cross-env": "^7.0.3",
     "serverless": "^3.39.0",
     "serverless-better-credentials": "^2.0.0",
