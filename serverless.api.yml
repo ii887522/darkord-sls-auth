@@ -39,7 +39,7 @@ params:
     logLevel: INFO
     stagePrefix: stage_
     stageDashPrefix: stage-
-    authorizerId: pmob2d
+    authorizerId: dviaui
 
     # Max action attempts
     maxSignUpAttempt: 20
