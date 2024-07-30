@@ -1,0 +1,16 @@
+{
+  "recommendations": [
+    "aaron-bond.better-comments",
+    "codeium.codeium",
+    "editorconfig.editorconfig",
+    "tamasfe.even-better-toml",
+    "mhutchie.git-graph",
+    "github.vscode-github-actions",
+    "eamodio.gitlens",
+    "visualstudioexptteam.vscodeintellicode",
+    "yzhang.markdown-all-in-one",
+    "christian-kohler.path-intellisense",
+    "esbenp.prettier-vscode",
+    "rust-lang.rust-analyzer"
+  ]
+}

@@ -1,0 +1,328 @@
+service: auth-db
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  deploymentMethod: direct
+  profile: ${param:profile}
+  region: ${param:region}
+  disableRollback: ${param:disableRollback}
+  deploymentBucket:
+    name: darkord-sls-${sls:stage}-deployment-bucket
+    serverSideEncryption: AES256
+
+params:
+  stage:
+    profile: darkord-stage
+    region: us-east-1
+    disableRollback: true
+    deletionProtection: true
+    pointInTimeRecovery: false
+    stagePrefix: stage_
+  prod:
+    profile: darkord
+    region: ap-southeast-1
+    disableRollback: false
+    deletionProtection: true
+    pointInTimeRecovery: false
+    stagePrefix: ""
+
+custom:
+  deploymentBucket:
+    blockPublicAccess: true
+
+resources:
+  Resources:
+    authAttemptTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: lsi_sk_1
+            AttributeType: S
+          - AttributeName: lsi_sk_2
+            AttributeType: S
+          - AttributeName: lsi_sk_3
+            AttributeType: S
+          - AttributeName: lsi_sk_4
+            AttributeType: S
+          - AttributeName: lsi_sk_5
+            AttributeType: S
+        BillingMode: PAY_PER_REQUEST
+        DeletionProtectionEnabled: ${param:deletionProtection}
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        LocalSecondaryIndexes:
+          - IndexName: attempt_lsi_sk_1_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_1
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: attempt_lsi_sk_2_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_2
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: attempt_lsi_sk_3_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_3
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: attempt_lsi_sk_4_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_4
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: attempt_lsi_sk_5_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_5
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: ${param:pointInTimeRecovery}
+        TableClass: STANDARD
+        TableName: ${param:stagePrefix}auth_attempt
+        TimeToLiveSpecification:
+          AttributeName: expired_at
+          Enabled: true
+    authUserTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: lsi_sk_1
+            AttributeType: S
+          - AttributeName: lsi_sk_2
+            AttributeType: S
+          - AttributeName: lsi_sk_3
+            AttributeType: S
+          - AttributeName: lsi_sk_4
+            AttributeType: S
+          - AttributeName: lsi_sk_5
+            AttributeType: S
+        BillingMode: PAY_PER_REQUEST
+        DeletionProtectionEnabled: ${param:deletionProtection}
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        LocalSecondaryIndexes:
+          - IndexName: user_lsi_sk_1_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_1
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: user_lsi_sk_2_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_2
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: user_lsi_sk_3_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_3
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: user_lsi_sk_4_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_4
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: user_lsi_sk_5_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_5
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: ${param:pointInTimeRecovery}
+        TableClass: STANDARD
+        TableName: ${param:stagePrefix}auth_user
+        TimeToLiveSpecification:
+          AttributeName: expired_at
+          Enabled: true
+    authValidTokenPairTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: lsi_sk_1
+            AttributeType: S
+          - AttributeName: lsi_sk_2
+            AttributeType: S
+          - AttributeName: lsi_sk_3
+            AttributeType: S
+          - AttributeName: lsi_sk_4
+            AttributeType: S
+          - AttributeName: lsi_sk_5
+            AttributeType: S
+        BillingMode: PAY_PER_REQUEST
+        DeletionProtectionEnabled: ${param:deletionProtection}
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        LocalSecondaryIndexes:
+          - IndexName: valid_token_pair_lsi_sk_1_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_1
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: valid_token_pair_lsi_sk_2_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_2
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: valid_token_pair_lsi_sk_3_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_3
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: valid_token_pair_lsi_sk_4_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_4
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: valid_token_pair_lsi_sk_5_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_5
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: ${param:pointInTimeRecovery}
+        TableClass: STANDARD
+        TableName: ${param:stagePrefix}auth_valid_token_pair
+        TimeToLiveSpecification:
+          AttributeName: expired_at
+          Enabled: true
+    authRbacTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: lsi_sk_1
+            AttributeType: S
+          - AttributeName: lsi_sk_2
+            AttributeType: S
+          - AttributeName: lsi_sk_3
+            AttributeType: S
+          - AttributeName: lsi_sk_4
+            AttributeType: S
+          - AttributeName: lsi_sk_5
+            AttributeType: S
+        BillingMode: PAY_PER_REQUEST
+        DeletionProtectionEnabled: ${param:deletionProtection}
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        LocalSecondaryIndexes:
+          - IndexName: rbac_lsi_sk_1_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_1
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: rbac_lsi_sk_2_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_2
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: rbac_lsi_sk_3_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_3
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: rbac_lsi_sk_4_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_4
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: rbac_lsi_sk_5_index
+            KeySchema:
+              - AttributeName: pk
+                KeyType: HASH
+              - AttributeName: lsi_sk_5
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: ${param:pointInTimeRecovery}
+        TableClass: STANDARD
+        TableName: ${param:stagePrefix}auth_rbac
+
+plugins:
+  - serverless-better-credentials # Must be the first one in this list for this to work
+  - serverless-deployment-bucket

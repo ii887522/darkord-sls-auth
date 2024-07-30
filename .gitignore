@@ -1,0 +1,3 @@
+.serverless
+/target
+node_modules

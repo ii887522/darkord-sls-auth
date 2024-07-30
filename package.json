@@ -1,0 +1,35 @@
+{
+  "name": "darkord-sls-auth",
+  "version": "1.0.0",
+  "description": "Auth microservice that provides authentication and authorization to enhance the security of any web server",
+  "scripts": {
+    "deploy:stage:api": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.api.yml --stage stage --verbose --conceal",
+    "deploy:prod:api": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.api.yml --stage prod --verbose --conceal",
+    "deploy:stage:db": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.db.yml --stage stage --verbose --conceal",
+    "deploy:prod:db": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.db.yml --stage prod --verbose --conceal",
+    "deploy:stage:sf": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.sf.yml --stage stage --verbose --conceal",
+    "deploy:prod:sf": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.sf.yml --stage prod --verbose --conceal",
+    "deploy:stage": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.yml --stage stage --verbose --conceal",
+    "deploy:prod": "cross-env AWS_SDK_LOAD_CONFIG=1 sls deploy -c serverless.yml --stage prod --verbose --conceal"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ii887522/darkord-sls-auth.git"
+  },
+  "author": "ii887522",
+  "bugs": {
+    "url": "https://github.com/ii887522/darkord-sls-auth/issues"
+  },
+  "homepage": "https://github.com/ii887522/darkord-sls-auth#readme",
+  "devDependencies": {
+    "@ii887522/serverless-rust-plugin": "^0.1.1",
+    "cross-env": "^7.0.3",
+    "serverless": "^3.39.0",
+    "serverless-better-credentials": "^2.0.0",
+    "serverless-deployment-bucket": "^1.6.0",
+    "serverless-iam-roles-per-function": "^3.2.0",
+    "serverless-latest-layer-version": "^2.1.2",
+    "serverless-prune-plugin": "^2.0.2",
+    "serverless-step-functions": "^3.21.0"
+  }
+}
