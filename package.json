@@ -24,7 +24,7 @@
   "devDependencies": {
     "@ii887522/serverless-rust-plugin": "^0.1.1",
     "cross-env": "^7.0.3",
-    "serverless": "^3.39.0",
+    "serverless": "^4.1.17",
     "serverless-better-credentials": "^2.0.0",
     "serverless-deployment-bucket": "^1.6.0",
     "serverless-iam-roles-per-function": "^3.2.0",
