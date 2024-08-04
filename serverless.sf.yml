@@ -78,6 +78,9 @@ custom:
     automatic: true
     includeLayers: true
     number: 5
+  rust:
+    cargoLambda:
+      docker: false
 
 package:
   individually: true
@@ -86,7 +89,7 @@ package:
 
 functions:
   sf-update-secrets:
-    handler: sf-update-secrets
+    handler: auth.sf-update-secrets
     timeout: 900
     package:
       patterns:
@@ -130,7 +133,7 @@ functions:
       REST_API_USAGE_PLAN_ID: ${param:restApiUsagePlanId}
       WS_API_USAGE_PLAN_ID: ${param:wsApiUsagePlanId}
   sf-delete-old-secrets:
-    handler: sf-delete-old-secrets
+    handler: auth.sf-delete-old-secrets
     package:
       patterns:
         - "functions/sf-delete-old-secrets/**"
@@ -229,7 +232,7 @@ stepFunctions:
 
 plugins:
   - serverless-better-credentials # Must be the first one in this list for this to work
-  - "@ii887522/serverless-rust-plugin"
+  - serverless-rust-plugin
   - serverless-prune-plugin
   - serverless-iam-roles-per-function
   - serverless-deployment-bucket
