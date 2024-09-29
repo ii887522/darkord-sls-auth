@@ -73,7 +73,7 @@ async fn main() -> Result<(), Error> {
         tokio::join!(get_access_token_secret_task, get_refresh_token_secret_task);
 
     // Fetch the latest version of access token secret key
-    let access_token_secret = mem::replace(
+    let access_token_secret_param = mem::replace(
         get_access_token_secret_task_resp?
             .parameters
             .unwrap()
@@ -83,7 +83,7 @@ async fn main() -> Result<(), Error> {
     );
 
     // Fetch the latest version of refresh token secret key
-    let refresh_token_secret = mem::replace(
+    let refresh_token_secret_param = mem::replace(
         get_refresh_token_secret_task_resp?
             .parameters
             .unwrap()
@@ -92,23 +92,31 @@ async fn main() -> Result<(), Error> {
         Parameter::builder().build(),
     );
 
+    let access_token_secret = access_token_secret_param.value.unwrap();
+
+    let access_token_secret_version = access_token_secret_param
+        .name
+        .unwrap()
+        .strip_prefix(&format!("{}/v", auth_constants::ACCESS_TOKEN_PARAM_PATH))
+        .unwrap()
+        .parse()?;
+
+    let refresh_token_secret = refresh_token_secret_param.value.unwrap();
+
+    let refresh_token_secret_version = refresh_token_secret_param
+        .name
+        .unwrap()
+        .strip_prefix(&format!("{}/v", auth_constants::REFRESH_TOKEN_PARAM_PATH))
+        .unwrap()
+        .parse()?;
+
     let env = Env {
         dynamodb,
         ssm,
-        access_token_secret: access_token_secret.value.unwrap(),
-        access_token_secret_version: access_token_secret
-            .name
-            .unwrap()
-            .strip_prefix(&format!("{}/v", auth_constants::ACCESS_TOKEN_PARAM_PATH))
-            .unwrap()
-            .parse()?,
-        refresh_token_secret: refresh_token_secret.value.unwrap(),
-        refresh_token_secret_version: refresh_token_secret
-            .name
-            .unwrap()
-            .strip_prefix(&format!("{}/v", auth_constants::REFRESH_TOKEN_PARAM_PATH))
-            .unwrap()
-            .parse()?,
+        access_token_secret,
+        access_token_secret_version,
+        refresh_token_secret,
+        refresh_token_secret_version,
     };
 
     run(service_fn(

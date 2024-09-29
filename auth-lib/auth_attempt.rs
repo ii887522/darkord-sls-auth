@@ -82,28 +82,30 @@ impl<'a> AuthAttemptDb<'a> {
         #[optarg_default] ip_addr: &'c str,
         #[optarg_default] jti: &'c str,
     ) -> Result<Option<AuthAttempt>> {
-        let db_resp = self
-            .dynamodb
-            .get_item()
-            .table_name(&*auth_constants::AUTH_ATTEMPT_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S(format!(
-                    "{action}#{id}",
-                    action = action.to_string().convert_snake_case_to_pascal_case(),
-                    id = if !ip_addr.is_empty() {
-                        ip_addr
-                    } else if !jti.is_empty() {
-                        jti
-                    } else {
-                        panic!("Unable to find id")
-                    }
-                )),
-            )
-            .key("sk", AttributeValue::S("Attempt".to_string()))
-            .projection_expression("pk,#action,attempt,expired_at")
-            .expression_attribute_names("#action", "action")
-            .send()
+        let db_resp = auth_constants::AUTH_ATTEMPT_TABLE_NAME
+            .with(|attempt_table_name| {
+                self.dynamodb
+                    .get_item()
+                    .table_name(attempt_table_name)
+                    .key(
+                        "pk",
+                        AttributeValue::S(format!(
+                            "{action}#{id}",
+                            action = action.to_string().convert_snake_case_to_pascal_case(),
+                            id = if !ip_addr.is_empty() {
+                                ip_addr
+                            } else if !jti.is_empty() {
+                                jti
+                            } else {
+                                panic!("Unable to find id")
+                            }
+                        )),
+                    )
+                    .key("sk", AttributeValue::S("Attempt".to_string()))
+                    .projection_expression("pk,#action,attempt,expired_at")
+                    .expression_attribute_names("#action", "action")
+                    .send()
+            })
             .await
             .context(Location::caller())?;
 
@@ -127,12 +129,13 @@ impl<'a> AuthAttemptDb<'a> {
             .await
             .context(Location::caller())?
         {
-            let is_blocked = attempt.expired_at.unwrap_or(u64::MAX)
-                > common::get_current_timestamp()
-                    .call()
-                    .context(Location::caller())?
-                && attempt.attempt >= action.get_max_attempt();
+            let expired_at = attempt.expired_at.unwrap_or(u64::MAX);
 
+            let now = common::get_current_timestamp()
+                .call()
+                .context(Location::caller())?;
+
+            let is_blocked = expired_at > now && attempt.attempt >= action.get_max_attempt();
             Ok(is_blocked)
         } else {
             Ok(false)
@@ -149,8 +152,10 @@ impl<'a> AuthAttemptDb<'a> {
         #[optarg_default] is_permanent: bool,
     ) -> Result<()> {
         let extend_by_in_minutes = if jti.is_empty() {
+            // For IP address attempt record
             60
         } else {
+            // For JWT attempt record
             action.get_jwt_token_validity_in_minutes()
         };
 
@@ -159,37 +164,39 @@ impl<'a> AuthAttemptDb<'a> {
             .call()
             .context(Location::caller())?;
 
-        let db_resp = self
-            .dynamodb
-            .update_item()
-            .table_name(&*auth_constants::AUTH_ATTEMPT_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S(format!(
-                    "{action}#{id}",
-                    action = action.to_string().convert_snake_case_to_pascal_case(),
-                    id = if !ip_addr.is_empty() {
-                        ip_addr
-                    } else if !jti.is_empty() {
-                        jti
-                    } else {
-                        panic!("Unable to find id")
-                    }
-                )),
-            )
-            .key("sk", AttributeValue::S("Attempt".to_string()))
-            .update_expression("SET attempt = attempt + :incr, expired_at = :ea")
-            .condition_expression("attribute_exists(pk)")
-            .expression_attribute_values(":incr", AttributeValue::N(attempt.to_string()))
-            .expression_attribute_values(
-                ":ea",
-                if is_permanent {
-                    AttributeValue::Null(true)
-                } else {
-                    AttributeValue::N(expired_at.to_string())
-                },
-            )
-            .send()
+        let db_resp = auth_constants::AUTH_ATTEMPT_TABLE_NAME
+            .with(|attempt_table_name| {
+                self.dynamodb
+                    .update_item()
+                    .table_name(attempt_table_name)
+                    .key(
+                        "pk",
+                        AttributeValue::S(format!(
+                            "{action}#{id}",
+                            action = action.to_string().convert_snake_case_to_pascal_case(),
+                            id = if !ip_addr.is_empty() {
+                                ip_addr
+                            } else if !jti.is_empty() {
+                                jti
+                            } else {
+                                panic!("Unable to find id")
+                            }
+                        )),
+                    )
+                    .key("sk", AttributeValue::S("Attempt".to_string()))
+                    .update_expression("SET attempt = attempt + :incr, expired_at = :ea")
+                    .condition_expression("attribute_exists(pk)")
+                    .expression_attribute_values(":incr", AttributeValue::N(attempt.to_string()))
+                    .expression_attribute_values(
+                        ":ea",
+                        if is_permanent {
+                            AttributeValue::Null(true)
+                        } else {
+                            AttributeValue::N(expired_at.to_string())
+                        },
+                    )
+                    .send()
+            })
             .await
             .context(Location::caller());
 
@@ -205,14 +212,17 @@ impl<'a> AuthAttemptDb<'a> {
                     .jti(jti)
                     .call();
 
-                self.dynamodb
-                    .put_item()
-                    .table_name(&*auth_constants::AUTH_ATTEMPT_TABLE_NAME)
-                    .set_item(Some(
-                        serde_dynamo::to_item(attempt).context(Location::caller())?,
-                    ))
-                    .condition_expression("attribute_not_exists(pk)")
-                    .send()
+                let raw_attempt = serde_dynamo::to_item(attempt).context(Location::caller())?;
+
+                auth_constants::AUTH_ATTEMPT_TABLE_NAME
+                    .with(|attempt_table_name| {
+                        self.dynamodb
+                            .put_item()
+                            .table_name(attempt_table_name)
+                            .set_item(Some(raw_attempt))
+                            .condition_expression("attribute_not_exists(pk)")
+                            .send()
+                    })
                     .await
                     .context(Location::caller())?;
             } else {
