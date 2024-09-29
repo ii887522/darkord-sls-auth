@@ -56,14 +56,18 @@ impl<'a> AuthValidTokenPairDb<'a> {
         let valid_token_pair =
             AuthValidTokenPair::new(refresh_token_jti, access_token_jti, expired_at);
 
-        self.dynamodb
-            .put_item()
-            .table_name(&*auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME)
-            .set_item(Some(
-                serde_dynamo::to_item(valid_token_pair).context(Location::caller())?,
-            ))
-            .condition_expression("attribute_not_exists(pk)")
-            .send()
+        let raw_valid_token_pair =
+            serde_dynamo::to_item(valid_token_pair).context(Location::caller())?;
+
+        auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME
+            .with(|valid_token_pair_table_name| {
+                self.dynamodb
+                    .put_item()
+                    .table_name(valid_token_pair_table_name)
+                    .set_item(Some(raw_valid_token_pair))
+                    .condition_expression("attribute_not_exists(pk)")
+                    .send()
+            })
             .await
             .context(Location::caller())?;
 
@@ -75,19 +79,24 @@ impl<'a> AuthValidTokenPairDb<'a> {
         refresh_token_jti: &str,
         access_token_jti: &str,
     ) -> Result<()> {
-        let db_resp = self
-            .dynamodb
-            .update_item()
-            .table_name(&*auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
-            )
-            .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
-            .update_expression("SET access_token_jti = :atj")
-            .condition_expression("attribute_exists(pk)")
-            .expression_attribute_values(":atj", AttributeValue::S(access_token_jti.to_string()))
-            .send()
+        let db_resp = auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME
+            .with(|valid_token_pair_table_name| {
+                self.dynamodb
+                    .update_item()
+                    .table_name(valid_token_pair_table_name)
+                    .key(
+                        "pk",
+                        AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
+                    )
+                    .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
+                    .update_expression("SET access_token_jti = :atj")
+                    .condition_expression("attribute_exists(pk)")
+                    .expression_attribute_values(
+                        ":atj",
+                        AttributeValue::S(access_token_jti.to_string()),
+                    )
+                    .send()
+            })
             .await
             .context(Location::caller());
 
@@ -116,17 +125,19 @@ impl<'a> AuthValidTokenPairDb<'a> {
         &self,
         refresh_token_jti: &str,
     ) -> Result<Option<AuthValidTokenPair>> {
-        let db_resp = self
-            .dynamodb
-            .get_item()
-            .table_name(&*auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
-            )
-            .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
-            .projection_expression("pk,refresh_token_jti,access_token_jti,expired_at")
-            .send()
+        let db_resp = auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME
+            .with(|valid_token_pair_table_name| {
+                self.dynamodb
+                    .get_item()
+                    .table_name(valid_token_pair_table_name)
+                    .key(
+                        "pk",
+                        AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
+                    )
+                    .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
+                    .projection_expression("pk,refresh_token_jti,access_token_jti,expired_at")
+                    .send()
+            })
             .await
             .context(Location::caller())?;
 
@@ -136,17 +147,19 @@ impl<'a> AuthValidTokenPairDb<'a> {
     }
 
     pub async fn delete_valid_token_pair(&self, refresh_token_jti: &str) -> Result<()> {
-        let db_resp = self
-            .dynamodb
-            .delete_item()
-            .table_name(&*auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME)
-            .key(
-                "pk",
-                AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
-            )
-            .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
-            .condition_expression("attribute_exists(pk)")
-            .send()
+        let db_resp = auth_constants::AUTH_VALID_TOKEN_PAIR_TABLE_NAME
+            .with(|valid_token_pair_table_name| {
+                self.dynamodb
+                    .delete_item()
+                    .table_name(valid_token_pair_table_name)
+                    .key(
+                        "pk",
+                        AttributeValue::S(format!("RefreshToken#{refresh_token_jti}")),
+                    )
+                    .key("sk", AttributeValue::S("ValidTokenPair".to_string()))
+                    .condition_expression("attribute_exists(pk)")
+                    .send()
+            })
             .await
             .context(Location::caller());
 

@@ -246,44 +246,43 @@ fn decode(jwt_token: &str, env: &Env) -> Result<JwtToken> {
             let mut validation = Validation::new(Algorithm::HS512);
             validation.set_audience(auth_constants::AUDIENCE_ACTIONS);
 
+            let jwt_token_version = unsafe_claims["ver"].as_u64().unwrap();
+
             // Ensure the given JWT token is valid
             match typ.as_str() {
                 auth_constants::TOKEN_TYPE_ACCESS => {
-                    let jwt_token = jsonwebtoken::decode(
-                        jwt_token,
-                        &DecodingKey::from_secret(
-                            env.jwt_token_secrets_map[&unsafe_claims["ver"].as_u64().unwrap()]
-                                .access_token_secret
-                                .as_bytes(),
-                        ),
-                        &validation,
-                    )?;
+                    let access_token_secret = DecodingKey::from_secret(
+                        env.jwt_token_secrets_map[&jwt_token_version]
+                            .access_token_secret
+                            .as_bytes(),
+                    );
+
+                    let jwt_token =
+                        jsonwebtoken::decode(jwt_token, &access_token_secret, &validation)?;
 
                     JwtToken::Access(jwt_token.claims)
                 }
                 auth_constants::TOKEN_TYPE_REFRESH => {
-                    let jwt_token = jsonwebtoken::decode(
-                        jwt_token,
-                        &DecodingKey::from_secret(
-                            env.jwt_token_secrets_map[&unsafe_claims["ver"].as_u64().unwrap()]
-                                .refresh_token_secret
-                                .as_bytes(),
-                        ),
-                        &validation,
-                    )?;
+                    let refresh_token_secret = DecodingKey::from_secret(
+                        env.jwt_token_secrets_map[&jwt_token_version]
+                            .refresh_token_secret
+                            .as_bytes(),
+                    );
+
+                    let jwt_token =
+                        jsonwebtoken::decode(jwt_token, &refresh_token_secret, &validation)?;
 
                     JwtToken::Refresh(jwt_token.claims)
                 }
                 auth_constants::TOKEN_TYPE_SESSION => {
-                    let jwt_token = jsonwebtoken::decode(
-                        jwt_token,
-                        &DecodingKey::from_secret(
-                            env.jwt_token_secrets_map[&unsafe_claims["ver"].as_u64().unwrap()]
-                                .session_token_secret
-                                .as_bytes(),
-                        ),
-                        &validation,
-                    )?;
+                    let session_token_secret = DecodingKey::from_secret(
+                        env.jwt_token_secrets_map[&jwt_token_version]
+                            .session_token_secret
+                            .as_bytes(),
+                    );
+
+                    let jwt_token =
+                        jsonwebtoken::decode(jwt_token, &session_token_secret, &validation)?;
 
                     JwtToken::Session(jwt_token.claims)
                 }
@@ -356,14 +355,15 @@ async fn auth_access_token(
 
     let MethodArn { method, path, .. } = MethodArn::from(method_arn_str);
 
+    let now = common::get_current_timestamp()
+        .call()
+        .context(Location::caller())?;
+
     if !env
         .rbac_cache
         .borrow()
         .contains_key(&format!("{method}_{path}"))
-        || env.rbac_cache.borrow()[&format!("{method}_{path}")].expired_at
-            <= common::get_current_timestamp()
-                .call()
-                .context(Location::caller())?
+        || env.rbac_cache.borrow()[&format!("{method}_{path}")].expired_at <= now
     {
         let rbac = AuthRbacDb {
             dynamodb: &env.dynamodb,
@@ -372,7 +372,9 @@ async fn auth_access_token(
         .await
         .context(Location::caller())?;
 
-        env.rbac_cache.borrow_mut().insert(
+        let mut rbac_cache = env.rbac_cache.borrow_mut();
+
+        rbac_cache.insert(
             format!("{method}_{path}"),
             AuthRbacExt {
                 rbac,
@@ -384,16 +386,17 @@ async fn auth_access_token(
         );
     }
 
-    let policy_effect =
-        if let Some(rbac) = &env.rbac_cache.borrow()[&format!("{method}_{path}")].rbac {
-            if rbac.roles.is_disjoint(&HashSet::from_iter(roles)) {
-                IamPolicyEffect::Deny
-            } else {
-                IamPolicyEffect::Allow
-            }
-        } else {
+    let rbac_cache = env.rbac_cache.borrow();
+
+    let policy_effect = if let Some(rbac) = &rbac_cache[&format!("{method}_{path}")].rbac {
+        if rbac.roles.is_disjoint(&HashSet::from_iter(roles)) {
             IamPolicyEffect::Deny
-        };
+        } else {
+            IamPolicyEffect::Allow
+        }
+    } else {
+        IamPolicyEffect::Deny
+    };
 
     let policy = gen_policy(
         method_arn_str.to_string(),

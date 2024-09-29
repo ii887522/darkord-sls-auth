@@ -45,17 +45,19 @@ async fn handler(mut event: Value, _context: &Context, env: &Env) -> Result<Valu
     event.log().context(Location::caller())?;
 
     // Fetch a list of API Gateway API keys
-    let get_rest_api_keys_task = env
-        .api_gateway
-        .get_api_keys()
-        .name_query(&*auth_constants::REST_API_KEY_NAME)
-        .send();
+    let get_rest_api_keys_task = auth_constants::REST_API_KEY_NAME.with(|rest_api_key_name| {
+        env.api_gateway
+            .get_api_keys()
+            .name_query(rest_api_key_name)
+            .send()
+    });
 
-    let get_ws_api_keys_task = env
-        .api_gateway
-        .get_api_keys()
-        .name_query(&*auth_constants::WS_API_KEY_NAME)
-        .send();
+    let get_ws_api_keys_task = auth_constants::WS_API_KEY_NAME.with(|ws_api_key_name| {
+        env.api_gateway
+            .get_api_keys()
+            .name_query(ws_api_key_name)
+            .send()
+    });
 
     // Fetch a list of JWT token and MFA secret SSM parameters
     let get_access_token_ssm_params_task = env

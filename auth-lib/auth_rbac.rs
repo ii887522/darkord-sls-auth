@@ -36,13 +36,15 @@ pub struct AuthRbacDb<'a> {
 
 impl<'a> AuthRbacDb<'a> {
     pub async fn get_rbac(&self, method: &str, path: &str) -> Result<Option<AuthRbac>> {
-        let db_resp = self
-            .dynamodb
-            .get_item()
-            .table_name(&*auth_constants::AUTH_RBAC_TABLE_NAME)
-            .key("pk", AttributeValue::S(format!("Route#{method}_/{path}")))
-            .key("sk", AttributeValue::S("Rbac".to_string()))
-            .send()
+        let db_resp = auth_constants::AUTH_RBAC_TABLE_NAME
+            .with(|rbac_table_name| {
+                self.dynamodb
+                    .get_item()
+                    .table_name(rbac_table_name)
+                    .key("pk", AttributeValue::S(format!("Route#{method}_/{path}")))
+                    .key("sk", AttributeValue::S("Rbac".to_string()))
+                    .send()
+            })
             .await
             .context(Location::caller())?;
 

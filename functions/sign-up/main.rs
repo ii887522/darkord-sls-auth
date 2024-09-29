@@ -67,7 +67,7 @@ async fn main() -> Result<(), Error> {
     let ssm = aws_sdk_ssm::Client::new(&config);
 
     // Fetch the latest version of session token secret key
-    let session_token_secret = mem::replace(
+    let session_token_secret_param = mem::replace(
         ssm.get_parameters_by_path()
             .path(auth_constants::SESSION_TOKEN_PARAM_PATH)
             .with_decryption(true)
@@ -80,16 +80,20 @@ async fn main() -> Result<(), Error> {
         Parameter::builder().build(),
     );
 
+    let session_token_secret = session_token_secret_param.value.unwrap();
+
+    let session_token_secret_version = session_token_secret_param
+        .name
+        .unwrap()
+        .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
+        .unwrap()
+        .parse()?;
+
     let env = Env {
         dynamodb,
         ssm,
-        session_token_secret: session_token_secret.value.unwrap(),
-        session_token_secret_version: session_token_secret
-            .name
-            .unwrap()
-            .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
-            .unwrap()
-            .parse()?,
+        session_token_secret,
+        session_token_secret_version,
     };
 
     run(service_fn(
@@ -169,6 +173,11 @@ async fn handler(
 
     let verification_code = common::gen_secret_digits().call();
 
+    let code_expired_at = common::extend_current_timestamp()
+        .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
+        .call()
+        .context(Location::caller())?;
+
     let user_id = AuthUserDb::new(&env.dynamodb)
         .ssm(&env.ssm)
         .call()
@@ -179,10 +188,7 @@ async fn handler(
             req.locale,
             req.extra,
             verification_code.to_string(),
-            common::extend_current_timestamp()
-                .minutes(auth_constants::VERIFICATION_CODE_VALIDITY_IN_MINUTES)
-                .call()
-                .context(Location::caller())?,
+            code_expired_at,
         )
         .await
         .context(Location::caller());

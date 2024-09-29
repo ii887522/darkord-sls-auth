@@ -22,14 +22,22 @@ pub enum Action {
 impl Action {
     pub fn get_max_attempt(&self) -> u32 {
         match self {
-            Action::SignUp => *auth_constants::MAX_SIGN_UP_ATTEMPT,
-            Action::VerifyAttr => *auth_constants::MAX_VERIFY_ATTR_ATTEMPT,
-            Action::InitMfa => *auth_constants::MAX_INIT_MFA_ATTEMPT,
-            Action::Login => *auth_constants::MAX_LOGIN_ATTEMPT,
-            Action::VerifyMfa => *auth_constants::MAX_VERIFY_MFA_ATTEMPT,
+            Action::SignUp => {
+                auth_constants::MAX_SIGN_UP_ATTEMPT.with(|&max_sign_up_attempt| max_sign_up_attempt)
+            }
+            Action::VerifyAttr => auth_constants::MAX_VERIFY_ATTR_ATTEMPT
+                .with(|&max_verify_attr_attempt| max_verify_attr_attempt),
+            Action::InitMfa => auth_constants::MAX_INIT_MFA_ATTEMPT
+                .with(|&max_init_mfa_attempt| max_init_mfa_attempt),
+            Action::Login => {
+                auth_constants::MAX_LOGIN_ATTEMPT.with(|&max_login_attempt| max_login_attempt)
+            }
+            Action::VerifyMfa => auth_constants::MAX_VERIFY_MFA_ATTEMPT
+                .with(|&max_verify_mfa_attempt| max_verify_mfa_attempt),
             Action::Refresh => u32::MAX,
             Action::ForgotPassword => u32::MAX,
-            Action::ResetPassword => *auth_constants::MAX_RESET_PASSWORD_ATTEMPT,
+            Action::ResetPassword => auth_constants::MAX_RESET_PASSWORD_ATTEMPT
+                .with(|&max_reset_password_attempt| max_reset_password_attempt),
         }
     }
 
@@ -48,9 +56,9 @@ impl Action {
 }
 
 impl Display for Action {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
         write!(
-            formatter,
+            fmt,
             "{}",
             serde_json::to_string(self)
                 .unwrap()

@@ -62,7 +62,7 @@ async fn main() -> Result<(), Error> {
     );
 
     // Fetch the latest version of session token secret key
-    let session_token_secret = mem::replace(
+    let session_token_secret_param = mem::replace(
         ssm.get_parameters_by_path()
             .path(auth_constants::SESSION_TOKEN_PARAM_PATH)
             .with_decryption(true)
@@ -75,23 +75,31 @@ async fn main() -> Result<(), Error> {
         Parameter::builder().build(),
     );
 
+    let mfa_secret_key = new_magic_crypt!(mfa_secret_param.value.unwrap(), 256);
+
+    let mfa_secret_version = mfa_secret_param
+        .name
+        .unwrap()
+        .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
+        .unwrap()
+        .parse()?;
+
+    let session_token_secret = session_token_secret_param.value.unwrap();
+
+    let session_token_secret_version = session_token_secret_param
+        .name
+        .unwrap()
+        .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
+        .unwrap()
+        .parse()?;
+
     let env = Env {
         dynamodb,
         ssm,
-        mfa_secret_key: new_magic_crypt!(mfa_secret_param.value.unwrap(), 256),
-        mfa_secret_version: mfa_secret_param
-            .name
-            .unwrap()
-            .strip_prefix(&format!("{}/v", auth_constants::MFA_PARAM_PATH))
-            .unwrap()
-            .parse()?,
-        session_token_secret: session_token_secret.value.unwrap(),
-        session_token_secret_version: session_token_secret
-            .name
-            .unwrap()
-            .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
-            .unwrap()
-            .parse()?,
+        mfa_secret_key,
+        mfa_secret_version,
+        session_token_secret,
+        session_token_secret_version,
     };
 
     run(service_fn(

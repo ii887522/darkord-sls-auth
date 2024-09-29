@@ -75,26 +75,30 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
     // First iteration of this lambda invocation
     if !is_continue {
         // Generate new API Gateway API keys
-        let create_rest_api_key_task = env
-            .api_gateway
-            .create_api_key()
-            .name(&*auth_constants::REST_API_KEY_NAME)
-            .enabled(true)
-            .send();
+        let create_rest_api_key_task =
+            auth_constants::REST_API_KEY_NAME.with(|rest_api_key_name| {
+                env.api_gateway
+                    .create_api_key()
+                    .name(rest_api_key_name)
+                    .enabled(true)
+                    .send()
+            });
 
-        let create_ws_api_key_task = env
-            .api_gateway
-            .create_api_key()
-            .name(&*auth_constants::WS_API_KEY_NAME)
-            .enabled(true)
-            .send();
+        let create_ws_api_key_task = auth_constants::WS_API_KEY_NAME.with(|ws_api_key_name| {
+            env.api_gateway
+                .create_api_key()
+                .name(ws_api_key_name)
+                .enabled(true)
+                .send()
+        });
 
         // Fetch the latest CloudFront distribution config to be reused for update a few config
-        let get_cf_dist_cfg_task = env
-            .cloudfront
-            .get_distribution_config()
-            .id(&*auth_constants::CF_DISTRIBUTION_ID)
-            .send();
+        let get_cf_dist_cfg_task = auth_constants::CF_DISTRIBUTION_ID.with(|cf_distribution_id| {
+            env.cloudfront
+                .get_distribution_config()
+                .id(cf_distribution_id)
+                .send()
+        });
 
         // Find the latest version of each SSM parameters
         let get_access_token_ssm_params_task = env
@@ -153,21 +157,25 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
             get_mfa_ssm_params_task_resp.context(Location::caller())?;
 
         // Associate the generated API keys to the respective usage plans
-        let create_rest_api_usage_plan_key_task = env
-            .api_gateway
-            .create_usage_plan_key()
-            .usage_plan_id(&*auth_constants::REST_API_USAGE_PLAN_ID)
-            .key_id(create_rest_api_key_task_resp.id.unwrap())
-            .key_type("API_KEY")
-            .send();
+        let create_rest_api_usage_plan_key_task =
+            auth_constants::REST_API_USAGE_PLAN_ID.with(|rest_api_usage_plan_id| {
+                env.api_gateway
+                    .create_usage_plan_key()
+                    .usage_plan_id(rest_api_usage_plan_id)
+                    .key_id(create_rest_api_key_task_resp.id.unwrap())
+                    .key_type("API_KEY")
+                    .send()
+            });
 
-        let create_ws_api_usage_plan_key_task = env
-            .api_gateway
-            .create_usage_plan_key()
-            .usage_plan_id(&*auth_constants::WS_API_USAGE_PLAN_ID)
-            .key_id(create_ws_api_key_task_resp.id.unwrap())
-            .key_type("API_KEY")
-            .send();
+        let create_ws_api_usage_plan_key_task =
+            auth_constants::WS_API_USAGE_PLAN_ID.with(|ws_api_usage_plan_id| {
+                env.api_gateway
+                    .create_usage_plan_key()
+                    .usage_plan_id(ws_api_usage_plan_id)
+                    .key_id(create_ws_api_key_task_resp.id.unwrap())
+                    .key_type("API_KEY")
+                    .send()
+            });
 
         // Generate new JWT token and MFA secret SSM parameters
         let access_token_ssm_param_name = format!(
@@ -321,40 +329,47 @@ async fn handler(mut event: Value, context: &Context, env: &Env) -> Result<Value
             .map(|origin| (origin.domain_name.to_string(), origin))
             .collect::<HashMap<_, _>>();
 
-        origin_map
-            .get_mut(&*auth_constants::CF_ORIGIN_WS_API_DOMAIN_NAME)
-            .unwrap()
-            .custom_headers
-            .as_mut()
-            .unwrap()
-            .items
-            .as_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|header| header.header_name == "x-api-key")
-            .unwrap()
-            .header_value = create_ws_api_key_task_resp.value.unwrap_or_default();
+        auth_constants::CF_ORIGIN_WS_API_DOMAIN_NAME.with(|cf_origin_ws_api_domain_name| {
+            origin_map
+                .get_mut(cf_origin_ws_api_domain_name)
+                .unwrap()
+                .custom_headers
+                .as_mut()
+                .unwrap()
+                .items
+                .as_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|header| header.header_name == "x-api-key")
+                .unwrap()
+                .header_value = create_ws_api_key_task_resp.value.unwrap_or_default();
+        });
 
-        origin_map
-            .get_mut(&*auth_constants::CF_ORIGIN_REST_API_DOMAIN_NAME)
-            .unwrap()
-            .custom_headers
-            .as_mut()
-            .unwrap()
-            .items
-            .as_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|header| header.header_name == "x-api-key")
-            .unwrap()
-            .header_value = create_rest_api_key_task_resp.value.unwrap_or_default();
+        auth_constants::CF_ORIGIN_REST_API_DOMAIN_NAME.with(|cf_origin_rest_api_domain_name| {
+            origin_map
+                .get_mut(cf_origin_rest_api_domain_name)
+                .unwrap()
+                .custom_headers
+                .as_mut()
+                .unwrap()
+                .items
+                .as_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|header| header.header_name == "x-api-key")
+                .unwrap()
+                .header_value = create_rest_api_key_task_resp.value.unwrap_or_default();
+        });
 
-        env.cloudfront
-            .update_distribution()
-            .distribution_config(get_cf_dist_cfg_task_resp.distribution_config.unwrap())
-            .id(&*auth_constants::CF_DISTRIBUTION_ID)
-            .if_match(get_cf_dist_cfg_task_resp.e_tag.unwrap_or_default())
-            .send()
+        auth_constants::CF_DISTRIBUTION_ID
+            .with(|cf_distribution_id| {
+                env.cloudfront
+                    .update_distribution()
+                    .distribution_config(get_cf_dist_cfg_task_resp.distribution_config.unwrap())
+                    .id(cf_distribution_id)
+                    .if_match(get_cf_dist_cfg_task_resp.e_tag.unwrap_or_default())
+                    .send()
+            })
             .await
             .context(Location::caller())?;
 

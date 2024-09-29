@@ -67,15 +67,17 @@ async fn main() -> Result<(), Error> {
         Parameter::builder().build(),
     );
 
+    let session_token_secret_version = session_token_secret
+        .name
+        .unwrap()
+        .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
+        .unwrap()
+        .parse()?;
+
     let env = Env {
         dynamodb,
         session_token_secret: session_token_secret.value.unwrap(),
-        session_token_secret_version: session_token_secret
-            .name
-            .unwrap()
-            .strip_prefix(&format!("{}/v", auth_constants::SESSION_TOKEN_PARAM_PATH))
-            .unwrap()
-            .parse()?,
+        session_token_secret_version,
     };
 
     run(service_fn(
