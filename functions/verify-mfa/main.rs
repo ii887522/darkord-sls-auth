@@ -221,35 +221,35 @@ async fn handler(
             .context(Location::caller())?;
 
         return Ok(api_resp.into());
-    } else {
-        let otp_code = TOTP::from_rfc6238(
-            Rfc6238::with_defaults(
-                Secret::Encoded(mfa_secret)
-                    .to_bytes()
-                    .context(Location::caller())?,
-            )
-            .context(Location::caller())?,
+    }
+
+    let otp_code = TOTP::from_rfc6238(
+        Rfc6238::with_defaults(
+            Secret::Encoded(mfa_secret)
+                .to_bytes()
+                .context(Location::caller())?,
         )
-        .context(Location::caller())?
-        .generate_current()
-        .context(Location::caller())?;
+        .context(Location::caller())?,
+    )
+    .context(Location::caller())?
+    .generate_current()
+    .context(Location::caller())?;
 
-        if req.code != otp_code {
-            let api_resp = ApiResponse {
-                code: 4010,
-                request_id: &context.request_id,
-                ..Default::default()
-            };
+    if req.code != otp_code {
+        let api_resp = ApiResponse {
+            code: 4010,
+            request_id: &context.request_id,
+            ..Default::default()
+        };
 
-            attempt_db
-                .incr(Action::VerifyMfa)
-                .jti(&*user_ctx.jti)
-                .send()
-                .await
-                .context(Location::caller())?;
+        attempt_db
+            .incr(Action::VerifyMfa)
+            .jti(&*user_ctx.jti)
+            .send()
+            .await
+            .context(Location::caller())?;
 
-            return Ok(api_resp.into());
-        }
+        return Ok(api_resp.into());
     }
 
     // Revoke this session token

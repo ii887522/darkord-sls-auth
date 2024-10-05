@@ -100,25 +100,25 @@ impl<'a> AuthValidTokenPairDb<'a> {
             .await
             .context(Location::caller());
 
-        if let Err(err) = db_resp {
-            let err = err
-                .downcast::<SdkError<_>>()
-                .context(Location::caller())?
-                .into_service_error();
+        let Err(err) = db_resp else {
+            return Ok(());
+        };
 
-            if let UpdateItemError::ConditionalCheckFailedException(_) = err {
-                let err = CommonError {
-                    code: 4010,
-                    ..Default::default()
-                };
+        let err = err
+            .downcast::<SdkError<_>>()
+            .context(Location::caller())?
+            .into_service_error();
 
-                bail!(err);
-            } else {
-                return Err(Error::from(err).context(Location::caller()));
-            }
+        if let UpdateItemError::ConditionalCheckFailedException(_) = err {
+            let err = CommonError {
+                code: 4010,
+                ..Default::default()
+            };
+
+            bail!(err);
+        } else {
+            Err(Error::from(err).context(Location::caller()))
         }
-
-        Ok(())
     }
 
     pub async fn get_valid_token_pair(
@@ -163,24 +163,24 @@ impl<'a> AuthValidTokenPairDb<'a> {
             .await
             .context(Location::caller());
 
-        if let Err(err) = db_resp {
-            let err = err
-                .downcast::<SdkError<_>>()
-                .context(Location::caller())?
-                .into_service_error();
+        let Err(err) = db_resp else {
+            return Ok(());
+        };
 
-            if let DeleteItemError::ConditionalCheckFailedException(_) = err {
-                let err = CommonError {
-                    code: 4001,
-                    message: "User already logged out".to_string(),
-                };
+        let err = err
+            .downcast::<SdkError<_>>()
+            .context(Location::caller())?
+            .into_service_error();
 
-                bail!(err);
-            } else {
-                return Err(Error::from(err).context(Location::caller()));
-            }
+        if let DeleteItemError::ConditionalCheckFailedException(_) = err {
+            let err = CommonError {
+                code: 4001,
+                message: "User already logged out".to_string(),
+            };
+
+            bail!(err);
+        } else {
+            Err(Error::from(err).context(Location::caller()))
         }
-
-        Ok(())
     }
 }

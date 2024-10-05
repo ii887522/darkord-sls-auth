@@ -121,25 +121,25 @@ impl<'a> AuthAttemptDb<'a> {
         #[optarg_default] ip_addr: &'c str,
         #[optarg_default] jti: &'c str,
     ) -> Result<bool> {
-        if let Some(attempt) = self
+        let Some(attempt) = self
             .get_attempt(action)
             .ip_addr(ip_addr)
             .jti(jti)
             .send()
             .await
             .context(Location::caller())?
-        {
-            let expired_at = attempt.expired_at.unwrap_or(u64::MAX);
+        else {
+            return Ok(false);
+        };
 
-            let now = common::get_current_timestamp()
-                .call()
-                .context(Location::caller())?;
+        let expired_at = attempt.expired_at.unwrap_or(u64::MAX);
 
-            let is_blocked = expired_at > now && attempt.attempt >= action.get_max_attempt();
-            Ok(is_blocked)
-        } else {
-            Ok(false)
-        }
+        let now = common::get_current_timestamp()
+            .call()
+            .context(Location::caller())?;
+
+        let is_blocked = expired_at > now && attempt.attempt >= action.get_max_attempt();
+        Ok(is_blocked)
     }
 
     #[optarg_method(AuthAttemptDbIncrBuilder, send)]
@@ -200,36 +200,38 @@ impl<'a> AuthAttemptDb<'a> {
             .await
             .context(Location::caller());
 
-        if let Err(err) = db_resp {
-            let err = err
-                .downcast::<SdkError<_>>()
-                .context(Location::caller())?
-                .into_service_error();
+        let Err(err) = db_resp else {
+            return Ok(());
+        };
 
-            if let ConditionalCheckFailedException(_) = err {
-                let attempt = AuthAttempt::new(action, attempt, expired_at)
-                    .ip_addr(ip_addr)
-                    .jti(jti)
-                    .call();
+        let err = err
+            .downcast::<SdkError<_>>()
+            .context(Location::caller())?
+            .into_service_error();
 
-                let raw_attempt = serde_dynamo::to_item(attempt).context(Location::caller())?;
+        if let ConditionalCheckFailedException(_) = err {
+            let attempt = AuthAttempt::new(action, attempt, expired_at)
+                .ip_addr(ip_addr)
+                .jti(jti)
+                .call();
 
-                auth_constants::AUTH_ATTEMPT_TABLE_NAME
-                    .with(|attempt_table_name| {
-                        self.dynamodb
-                            .put_item()
-                            .table_name(attempt_table_name)
-                            .set_item(Some(raw_attempt))
-                            .condition_expression("attribute_not_exists(pk)")
-                            .send()
-                    })
-                    .await
-                    .context(Location::caller())?;
-            } else {
-                return Err(Error::from(err).context(Location::caller()));
-            }
+            let raw_attempt = serde_dynamo::to_item(attempt).context(Location::caller())?;
+
+            auth_constants::AUTH_ATTEMPT_TABLE_NAME
+                .with(|attempt_table_name| {
+                    self.dynamodb
+                        .put_item()
+                        .table_name(attempt_table_name)
+                        .set_item(Some(raw_attempt))
+                        .condition_expression("attribute_not_exists(pk)")
+                        .send()
+                })
+                .await
+                .context(Location::caller())?;
+
+            Ok(())
+        } else {
+            Err(Error::from(err).context(Location::caller()))
         }
-
-        Ok(())
     }
 }

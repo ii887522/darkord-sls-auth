@@ -360,56 +360,52 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller());
 
-        if let Err(err) = db_resp {
-            let mut err = err
-                .downcast::<SdkError<_>>()
-                .context(Location::caller())?
-                .into_service_error();
+        let Err(err) = db_resp else {
+            return Ok(user_id);
+        };
 
-            if let TransactionCanceledException(err) = &mut err {
-                for cancellation_reason in err.cancellation_reasons.as_mut().unwrap_or(&mut vec![])
-                {
-                    let Some(reason_code) = cancellation_reason.code.as_ref() else {
-                        continue;
+        let mut err = err
+            .downcast::<SdkError<_>>()
+            .context(Location::caller())?
+            .into_service_error();
+
+        if let TransactionCanceledException(err) = &mut err {
+            for cancellation_reason in err.cancellation_reasons.as_mut().unwrap_or(&mut vec![]) {
+                let Some(reason_code) = cancellation_reason.code.as_ref() else {
+                    continue;
+                };
+
+                if reason_code != "ConditionalCheckFailed" && reason_code != "TransactionConflict" {
+                    continue;
+                }
+
+                let user: AuthUser =
+                    serde_dynamo::from_item(cancellation_reason.item.take().unwrap_or_default())
+                        .context(Location::caller())?;
+
+                if user.pk.starts_with("Username#") {
+                    let err = CommonError {
+                        code: 4090,
+                        message: "Username already exists".to_string(),
                     };
 
-                    if reason_code != "ConditionalCheckFailed"
-                        && reason_code != "TransactionConflict"
-                    {
-                        continue;
-                    }
-
-                    let user: AuthUser = serde_dynamo::from_item(
-                        cancellation_reason.item.take().unwrap_or_default(),
-                    )
-                    .context(Location::caller())?;
-
-                    if user.pk.starts_with("Username#") {
-                        let err = CommonError {
-                            code: 4090,
-                            message: "Username already exists".to_string(),
-                        };
-
-                        bail!(err);
-                    }
-
-                    if user.pk.starts_with("EmailAddr#") {
-                        let err = CommonError {
-                            code: 4091,
-                            message: "Email address already exists".to_string(),
-                        };
-
-                        bail!(err);
-                    }
-
-                    panic!("Unhandled pk: {}", user.pk);
+                    bail!(err);
                 }
-            }
 
-            return Err(Error::from(err).context(Location::caller()));
+                if user.pk.starts_with("EmailAddr#") {
+                    let err = CommonError {
+                        code: 4091,
+                        message: "Email address already exists".to_string(),
+                    };
+
+                    bail!(err);
+                }
+
+                panic!("Unhandled pk: {}", user.pk);
+            }
         }
 
-        Ok(user_id)
+        Err(Error::from(err).context(Location::caller()))
     }
 
     pub async fn get_verification_code(&self, user_id: u32) -> Result<String> {
@@ -426,20 +422,22 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller())?;
 
-        if let Some(item) = db_resp.item {
-            let user_verification: AuthUserVerification =
-                serde_dynamo::from_item(item).context(Location::caller())?;
+        let Some(item) = db_resp.item else {
+            return Ok("".to_string());
+        };
 
-            let now = common::get_current_timestamp()
-                .call()
-                .context(Location::caller())?;
+        let user_verification: AuthUserVerification =
+            serde_dynamo::from_item(item).context(Location::caller())?;
 
-            if now < user_verification.expired_at {
-                return Ok(user_verification.verification_code);
-            }
+        let now = common::get_current_timestamp()
+            .call()
+            .context(Location::caller())?;
+
+        if now >= user_verification.expired_at {
+            return Ok("".to_string());
         }
 
-        Ok("".to_string())
+        Ok(user_verification.verification_code)
     }
 
     pub async fn mark_attrs_as_verified(
@@ -521,35 +519,35 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller());
 
-        if let Err(err) = db_resp {
-            let err = err
-                .downcast::<SdkError<_>>()
-                .context(Location::caller())?
-                .into_service_error();
+        let Err(err) = db_resp else {
+            return Ok(());
+        };
 
-            if let ConditionalCheckFailedException(_) = err {
-                let user_mfa =
-                    AuthUserMfa::new(user_id, encrypted_mfa_secret, self.mfa_secret_version);
+        let err = err
+            .downcast::<SdkError<_>>()
+            .context(Location::caller())?
+            .into_service_error();
 
-                let raw_user_mfa = serde_dynamo::to_item(user_mfa).context(Location::caller())?;
+        if let ConditionalCheckFailedException(_) = err {
+            let user_mfa = AuthUserMfa::new(user_id, encrypted_mfa_secret, self.mfa_secret_version);
+            let raw_user_mfa = serde_dynamo::to_item(user_mfa).context(Location::caller())?;
 
-                auth_constants::AUTH_USER_TABLE_NAME
-                    .with(|user_table_name| {
-                        self.dynamodb
-                            .put_item()
-                            .table_name(user_table_name)
-                            .set_item(Some(raw_user_mfa))
-                            .condition_expression("attribute_not_exists(pk)")
-                            .send()
-                    })
-                    .await
-                    .context(Location::caller())?;
-            } else {
-                return Err(Error::from(err).context(Location::caller()));
-            }
+            auth_constants::AUTH_USER_TABLE_NAME
+                .with(|user_table_name| {
+                    self.dynamodb
+                        .put_item()
+                        .table_name(user_table_name)
+                        .set_item(Some(raw_user_mfa))
+                        .condition_expression("attribute_not_exists(pk)")
+                        .send()
+                })
+                .await
+                .context(Location::caller())?;
+
+            Ok(())
+        } else {
+            Err(Error::from(err).context(Location::caller()))
         }
-
-        Ok(())
     }
 
     pub async fn get_detail(&self, user_id: u32) -> Result<Option<AuthUserDetail>> {
@@ -587,41 +585,41 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller())?;
 
-        if let Some(item) = db_resp.item {
-            let user_mfa: AuthUserMfa = serde_dynamo::from_item(item).context(Location::caller())?;
+        let Some(item) = db_resp.item else {
+            return Ok("".to_string());
+        };
 
-            if let Entry::Vacant(entry) = self.mfa_secret_key_cache.entry(user_mfa.version) {
-                let mfa_secret_key = new_magic_crypt!(
-                    self.ssm
-                        .unwrap()
-                        .get_parameter()
-                        .name(format!(
-                            "{name}/v{version:0>3}",
-                            name = auth_constants::MFA_PARAM_PATH,
-                            version = user_mfa.version
-                        ))
-                        .with_decryption(true)
-                        .send()
-                        .await
-                        .context(Location::caller())?
-                        .parameter
-                        .unwrap()
-                        .value
-                        .unwrap(),
-                    256
-                );
+        let user_mfa: AuthUserMfa = serde_dynamo::from_item(item).context(Location::caller())?;
 
-                entry.insert(mfa_secret_key);
-            };
+        if let Entry::Vacant(entry) = self.mfa_secret_key_cache.entry(user_mfa.version) {
+            let mfa_secret_key = new_magic_crypt!(
+                self.ssm
+                    .unwrap()
+                    .get_parameter()
+                    .name(format!(
+                        "{name}/v{version:0>3}",
+                        name = auth_constants::MFA_PARAM_PATH,
+                        version = user_mfa.version
+                    ))
+                    .with_decryption(true)
+                    .send()
+                    .await
+                    .context(Location::caller())?
+                    .parameter
+                    .unwrap()
+                    .value
+                    .unwrap(),
+                256
+            );
 
-            let mfa_secret = self.mfa_secret_key_cache[&user_mfa.version]
-                .decrypt_base64_to_string(user_mfa.secret)
-                .context(Location::caller())?;
+            entry.insert(mfa_secret_key);
+        };
 
-            return Ok(mfa_secret);
-        }
+        let mfa_secret = self.mfa_secret_key_cache[&user_mfa.version]
+            .decrypt_base64_to_string(user_mfa.secret)
+            .context(Location::caller())?;
 
-        Ok("".to_string())
+        Ok(mfa_secret)
     }
 
     pub async fn get_user_id(&self, email_addr: &str) -> Result<Option<u32>> {
@@ -674,36 +672,38 @@ impl<'a> AuthUserDb<'a> {
             .await
             .context(Location::caller());
 
-        if let Err(err) = db_resp {
-            let err = err
-                .downcast::<SdkError<_>>()
-                .context(Location::caller())?
-                .into_service_error();
+        let Err(err) = db_resp else {
+            return Ok(());
+        };
 
-            if let ConditionalCheckFailedException(_) = err {
-                let user_verification =
-                    AuthUserVerification::new(user_id, verification_code, expired_at);
+        let err = err
+            .downcast::<SdkError<_>>()
+            .context(Location::caller())?
+            .into_service_error();
 
-                let raw_user_verification =
-                    serde_dynamo::to_item(user_verification).context(Location::caller())?;
+        if let ConditionalCheckFailedException(_) = err {
+            let user_verification =
+                AuthUserVerification::new(user_id, verification_code, expired_at);
 
-                auth_constants::AUTH_USER_TABLE_NAME
-                    .with(|user_table_name| {
-                        self.dynamodb
-                            .put_item()
-                            .table_name(user_table_name)
-                            .set_item(Some(raw_user_verification))
-                            .condition_expression("attribute_not_exists(pk)")
-                            .send()
-                    })
-                    .await
-                    .context(Location::caller())?;
-            } else {
-                return Err(Error::from(err).context(Location::caller()));
-            }
+            let raw_user_verification =
+                serde_dynamo::to_item(user_verification).context(Location::caller())?;
+
+            auth_constants::AUTH_USER_TABLE_NAME
+                .with(|user_table_name| {
+                    self.dynamodb
+                        .put_item()
+                        .table_name(user_table_name)
+                        .set_item(Some(raw_user_verification))
+                        .condition_expression("attribute_not_exists(pk)")
+                        .send()
+                })
+                .await
+                .context(Location::caller())?;
+
+            Ok(())
+        } else {
+            Err(Error::from(err).context(Location::caller()))
         }
-
-        Ok(())
     }
 
     pub async fn set_password(&self, user_id: u32, password: &str) -> Result<()> {
